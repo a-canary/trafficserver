@@ -6499,6 +6499,14 @@ TSNetVConnRemoteAddrGet(TSVConn connp)
   return vc->get_remote_addr();
 }
 
+void
+TSNetVConnSSLCachedHitSet(TSVConn connp, int state)
+{
+  sdk_assert(sdk_sanity_check_iocore_structure(connp) == TS_SUCCESS);
+  SSLNetVConnection *vc = reinterpret_cast<SSLNetVConnection *>(connp);
+  vc->setSSLSessionCacheHit(0 != state);
+}
+
 TSAction
 TSNetConnect(TSCont contp, sockaddr const *addr)
 {
