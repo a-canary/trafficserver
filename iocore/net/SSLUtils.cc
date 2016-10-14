@@ -84,6 +84,8 @@
 #endif
 #endif
 
+void (*ssl_alpn_selected_fp)(const SSL*, const unsigned char**, unsigned int*) = NULL;
+
 #if (OPENSSL_VERSION_NUMBER >= 0x10000000L) // openssl returns a const SSL_METHOD
 typedef const SSL_METHOD *ink_ssl_method_t;
 #else
@@ -1597,6 +1599,16 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
   }
 #endif
 
+  void (*test_alpn)(SSL_CTX*, int (*)(SSL*, const unsigned char**, unsigned char*, const unsigned char*, unsigned int, void*), void*) =
+  (void (*)(SSL_CTX*, int (*)(SSL*, const unsigned char**, unsigned char*, const unsigned char*, unsigned int, void*), void*)) dlsym(RTLD_DEFAULT, "SSL_CTX_set_alpn_select_cb");
+  ssl_alpn_selected_fp = (void (*)(const SSL*, const unsigned char**, unsigned int*)) dlsym(RTLD_DEFAULT, "SSL_get0_alpn_selected");
+  if (test_alpn && ssl_alpn_selected_fp) {
+    test_alpn(ctx, SSLNetVConnection::select_next_protocol, NULL);
+    Debug("ssl", "apln is enabled");
+  } else {
+    ssl_alpn_selected_fp = NULL;
+  }
+
 #ifdef SSL_OP_SAFARI_ECDHE_ECDSA_BUG
   SSL_CTX_set_options(ctx, SSL_OP_SAFARI_ECDHE_ECDSA_BUG);
 #endif
@@ -1817,10 +1829,6 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
 #if TS_USE_TLS_NPN
   SSL_CTX_set_next_protos_advertised_cb(ctx, SSLNetVConnection::advertise_next_protocol, NULL);
 #endif /* TS_USE_TLS_NPN */
-
-#if TS_USE_TLS_ALPN
-  SSL_CTX_set_alpn_select_cb(ctx, SSLNetVConnection::select_next_protocol, NULL);
-#endif /* TS_USE_TLS_ALPN */
 
 #ifdef HAVE_OPENSSL_OCSP_STAPLING
   if (SSLConfigParams::ssl_ocsp_enabled) {
