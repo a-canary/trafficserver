@@ -66,6 +66,7 @@
 #define SSL_DEF_TLS_RECORD_MSEC_THRESHOLD 1000
 
 class SSLNextProtocolSet;
+class SSLNextProtocolAccept;
 struct SSLCertLookup;
 
 typedef enum {
@@ -125,7 +126,7 @@ public:
   int sslClientHandShakeEvent(int &err);
   virtual void net_read_io(NetHandler *nh, EThread *lthread);
   virtual int64_t load_buffer_and_write(int64_t towrite, MIOBufferAccessor &buf, int64_t &total_written, int &needs);
-  void registerNextProtocolSet(const SSLNextProtocolSet *);
+  void registerNextProtocolSet(SSLNextProtocolSet *);
   virtual void do_io_close(int lerrno = -1);
 
   ////////////////////////////////////////////////////////////
@@ -138,6 +139,7 @@ public:
   static int advertise_next_protocol(SSL *ssl, const unsigned char **out, unsigned *outlen, void *);
   static int select_next_protocol(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
                                   unsigned inlen, void *);
+
 
   Continuation *
   endpoint() const
@@ -268,6 +270,11 @@ public:
   {
     clientVerifyEnable = enable != 0;
   }
+  void clearnpnSet()
+  {
+      npnSet = nullptr;
+  }
+
 
 private:
   SSLNetVConnection(const SSLNetVConnection &);
@@ -305,7 +312,7 @@ private:
     HANDSHAKE_HOOKS_DONE
   } sslHandshakeHookState;
 
-  const SSLNextProtocolSet *npnSet;
+  mutable SSLNextProtocolSet *npnSet;
   Continuation *npnEndpoint;
   SessionAccept *sessionAcceptPtr;
   bool sslTrace;
