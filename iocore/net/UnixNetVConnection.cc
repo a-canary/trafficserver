@@ -969,7 +969,8 @@ UnixNetVConnection::UnixNetVConnection()
     from_accept_thread(false),
     origin_trace(false),
     origin_trace_addr(nullptr),
-    origin_trace_port(0)
+    origin_trace_port(0),
+    accept_object(nullptr)
 {
   SET_HANDLER((NetVConnHandler)&UnixNetVConnection::startEvent);
 }
