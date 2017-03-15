@@ -9198,11 +9198,11 @@ void TSRegisterProtocolSet(TSVConn sslp, TSNextProtocolSet ps)
   }
 }
 
-TSNextProtocolSet TSUnregisterProtocol(TSNextProtocolSet protoset, const char* protocol, TSCont contp)
+TSNextProtocolSet TSUnregisterProtocol(TSNextProtocolSet protoset, const char* protocol)
 {
     SSLNextProtocolSet* snps = reinterpret_cast<SSLNextProtocolSet*> (protoset);
     if(snps){
-        snps->unregisterEndpoint(protocol,reinterpret_cast<Continuation*>(contp));
+        snps->unregisterEndpoint(protocol,nullptr);
         return reinterpret_cast<TSNextProtocolSet>(snps);
     }
     return nullptr;
