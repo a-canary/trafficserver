@@ -155,3 +155,8 @@ more widely. Those are described on this page.
 .. type:: TSVConn
 
 .. type:: TSVIO
+
+.. type:: TSAcceptor
+
+.. type:: TSNextProtocolSet
+
