@@ -865,6 +865,11 @@ register_stat_callbacks()
                      (int)http_sm_finish_time_stat, RecRawStatSyncSum);
 }
 
+bool
+lt_sort(int x, int y)
+{
+  return x < y;
+}
 ////////////////////////////////////////////////////////////////
 //
 //  HttpConfig::startup()
@@ -898,6 +903,7 @@ HttpConfig::startup()
   HttpEstablishStaticConfigLongLong(c.oride.origin_max_connections_queue, "proxy.config.http.origin_max_connections_queue");
   HttpEstablishStaticConfigLongLong(c.origin_min_keep_alive_connections, "proxy.config.http.origin_min_keep_alive_connections");
   HttpEstablishStaticConfigByte(c.oride.attach_server_session_to_client, "proxy.config.http.attach_server_session_to_client");
+  HttpEstablishStaticConfigByte(c.oride.safe_requests_retryable, "proxy.config.http.safe_requests_retryable");
 
   HttpEstablishStaticConfigByte(c.disable_ssl_parenting, "proxy.local.http.parent_proxy.disable_connect_tunneling");
   HttpEstablishStaticConfigByte(c.oride.forward_connect_method, "proxy.config.http.forward_connect_method");
@@ -971,6 +977,7 @@ HttpConfig::startup()
   HttpEstablishStaticConfigLongLong(c.oride.parent_connect_attempts, "proxy.config.http.parent_proxy.total_connect_attempts");
   HttpEstablishStaticConfigLongLong(c.per_parent_connect_attempts, "proxy.config.http.parent_proxy.per_parent_connect_attempts");
   HttpEstablishStaticConfigLongLong(c.parent_connect_timeout, "proxy.config.http.parent_proxy.connect_attempts_timeout");
+  HttpEstablishStaticConfigByte(c.oride.parent_failures_update_hostdb, "proxy.config.http.parent_proxy.mark_down_hostdb");
 
   HttpEstablishStaticConfigLongLong(c.oride.sock_recv_buffer_size_out, "proxy.config.net.sock_recv_buffer_size_out");
   HttpEstablishStaticConfigLongLong(c.oride.sock_send_buffer_size_out, "proxy.config.net.sock_send_buffer_size_out");
@@ -1079,6 +1086,7 @@ HttpConfig::startup()
   HttpEstablishStaticConfigByte(c.errors_log_error_pages, "proxy.config.http.errors.log_error_pages");
 
   HttpEstablishStaticConfigLongLong(c.oride.slow_log_threshold, "proxy.config.http.slow.log.threshold");
+  HttpEstablishStaticConfigLongLong(c.oride.ssl_client_verify_server, "proxy.config.ssl.client.verify.server");
 
   HttpEstablishStaticConfigByte(c.record_cop_page, "proxy.config.http.record_heartbeat");
 
@@ -1131,6 +1139,21 @@ HttpConfig::startup()
   c.cluster_time_delta = 0;
   RegisterMgmtCallback(MGMT_EVENT_HTTP_CLUSTER_DELTA, cluster_delta_cb, nullptr);
 
+
+  // The responses with following status code WILL BE cached with negative caching enabled.
+  c.codeNegCache.add(HTTP_STATUS_NO_CONTENT);
+  c.codeNegCache.add(HTTP_STATUS_USE_PROXY);
+  c.codeNegCache.add(HTTP_STATUS_FORBIDDEN);
+  c.codeNegCache.add(HTTP_STATUS_NOT_FOUND);
+  c.codeNegCache.add(HTTP_STATUS_METHOD_NOT_ALLOWED);
+  c.codeNegCache.add(HTTP_STATUS_REQUEST_URI_TOO_LONG);
+  c.codeNegCache.add(HTTP_STATUS_INTERNAL_SERVER_ERROR);
+  c.codeNegCache.add(HTTP_STATUS_NOT_IMPLEMENTED);
+  c.codeNegCache.add(HTTP_STATUS_BAD_GATEWAY);
+  c.codeNegCache.add(HTTP_STATUS_SERVICE_UNAVAILABLE);
+  c.codeNegCache.add(HTTP_STATUS_GATEWAY_TIMEOUT);
+  c.codeNegCache.qsort(lt_sort);
+
   http_config_cont->handleEvent(EVENT_NONE, nullptr);
 
   return;
@@ -1181,6 +1204,7 @@ HttpConfig::reconfigure()
   }
   params->origin_min_keep_alive_connections     = m_master.origin_min_keep_alive_connections;
   params->oride.attach_server_session_to_client = m_master.oride.attach_server_session_to_client;
+  params->oride.safe_requests_retryable         = m_master.oride.safe_requests_retryable;
 
   if (params->oride.origin_max_connections && params->oride.origin_max_connections < params->origin_min_keep_alive_connections) {
     Warning("origin_max_connections < origin_min_keep_alive_connections, setting min=max , please correct your records.config");
@@ -1252,6 +1276,7 @@ HttpConfig::reconfigure()
   params->oride.parent_connect_attempts       = m_master.oride.parent_connect_attempts;
   params->per_parent_connect_attempts         = m_master.per_parent_connect_attempts;
   params->parent_connect_timeout              = m_master.parent_connect_timeout;
+  params->oride.parent_failures_update_hostdb = m_master.oride.parent_failures_update_hostdb;
 
   params->oride.sock_recv_buffer_size_out = m_master.oride.sock_recv_buffer_size_out;
   params->oride.sock_send_buffer_size_out = m_master.oride.sock_send_buffer_size_out;
@@ -1361,6 +1386,7 @@ HttpConfig::reconfigure()
   params->url_remap_required               = INT_TO_BOOL(m_master.url_remap_required);
   params->errors_log_error_pages           = INT_TO_BOOL(m_master.errors_log_error_pages);
   params->oride.slow_log_threshold         = m_master.oride.slow_log_threshold;
+  params->oride.ssl_client_verify_server   = m_master.oride.ssl_client_verify_server;
   params->record_cop_page                  = INT_TO_BOOL(m_master.record_cop_page);
   params->oride.send_http11_requests       = m_master.oride.send_http11_requests;
   params->oride.doc_in_cache_skip_dns      = INT_TO_BOOL(m_master.oride.doc_in_cache_skip_dns);
@@ -1409,8 +1435,8 @@ HttpConfig::reconfigure()
 
   // Local Manager
   params->synthetic_port = m_master.synthetic_port;
-
-  m_id = configProcessor.set(m_id, params);
+  params->codeNegCache   = m_master.codeNegCache;
+  m_id                   = configProcessor.set(m_id, params);
 
 #undef INT_TO_BOOL
 }

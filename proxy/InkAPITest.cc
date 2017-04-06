@@ -5550,7 +5550,8 @@ typedef enum {
   ORIG_TS_SSL_FIRST_HOOK,
   ORIG_TS_VCONN_PRE_ACCEPT_HOOK = ORIG_TS_SSL_FIRST_HOOK,
   ORIG_TS_SSL_SNI_HOOK,
-  ORIG_TS_SSL_LAST_HOOK = ORIG_TS_SSL_SNI_HOOK,
+  ORIG_TS_SSL_SERVERNAME_HOOK,
+  ORIG_TS_SSL_LAST_HOOK = TS_SSL_SERVERNAME_HOOK,
   ORIG_TS_HTTP_LAST_HOOK
 } ORIG_TSHttpHookID;
 
@@ -7602,6 +7603,7 @@ const char *SDK_Overridable_Configs[TS_CONFIG_LAST_ENTRY] = {
   "proxy.config.http.global_user_agent_header",
   "proxy.config.http.auth_server_session_private",
   "proxy.config.http.slow.log.threshold",
+  "proxy.config.ssl.client.verify.server",
   "proxy.config.http.cache.generation",
   "proxy.config.body_factory.template_base",
   "proxy.config.http.cache.open_write_fail_action",
@@ -7610,6 +7612,7 @@ const char *SDK_Overridable_Configs[TS_CONFIG_LAST_ENTRY] = {
   "proxy.config.http.cache.max_open_write_retries",
   "proxy.config.http.redirect_use_orig_cache_key",
   "proxy.config.http.attach_server_session_to_client",
+  "proxy.config.http.safe_requests_retryable",
   "proxy.config.http.origin_max_connections_queue",
   "proxy.config.websocket.no_activity_timeout",
   "proxy.config.websocket.active_timeout",
@@ -7620,6 +7623,7 @@ const char *SDK_Overridable_Configs[TS_CONFIG_LAST_ENTRY] = {
   "proxy.config.http.forward_connect_method",
   "proxy.config.ssl.client.cert.filename",
   "proxy.config.ssl.client.cert.path",
+  "proxy.config.http.parent_proxy.mark_down_hostdb",
 };
 
 REGRESSION_TEST(SDK_API_OVERRIDABLE_CONFIGS)(RegressionTest *test, int /* atype ATS_UNUSED */, int *pstatus)

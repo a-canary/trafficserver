@@ -39,6 +39,7 @@
 #include "HttpSM.h"
 #include "HttpConfig.h"
 #include "P_Net.h"
+#include "P_SSLNextProtocolAccept.h"
 #include "P_UDPNet.h"
 #include "P_HostDB.h"
 #include "P_Cache.h"
@@ -8097,7 +8098,6 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
     ret = &overridableHttpConfig->body_factory_template_base;
     break;
   case TS_CONFIG_HTTP_CACHE_OPEN_WRITE_FAIL_ACTION:
-    typ = OVERRIDABLE_TYPE_INT;
     ret = &overridableHttpConfig->cache_open_write_fail_action;
     break;
   case TS_CONFIG_HTTP_ENABLE_REDIRECTION:
@@ -8117,6 +8117,10 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
   case TS_CONFIG_HTTP_ATTACH_SERVER_SESSION_TO_CLIENT:
     typ = OVERRIDABLE_TYPE_INT;
     ret = &overridableHttpConfig->attach_server_session_to_client;
+    break;
+  case TS_CONFIG_HTTP_SAFE_REQUESTS_RETRYABLE:
+    typ = OVERRIDABLE_TYPE_INT;
+    ret = &overridableHttpConfig->safe_requests_retryable;
     break;
   case TS_CONFIG_HTTP_ORIGIN_MAX_CONNECTIONS_QUEUE:
     typ = OVERRIDABLE_TYPE_INT;
@@ -8142,11 +8146,9 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
     ret = &overridableHttpConfig->transaction_active_timeout_in;
     break;
   case TS_CONFIG_SRV_ENABLED:
-    typ = OVERRIDABLE_TYPE_INT;
     ret = &overridableHttpConfig->srv_enabled;
     break;
   case TS_CONFIG_HTTP_FORWARD_CONNECT_METHOD:
-    typ = OVERRIDABLE_TYPE_INT;
     ret = &overridableHttpConfig->forward_connect_method;
     break;
   case TS_CONFIG_SSL_CERT_FILENAME:
@@ -8156,6 +8158,12 @@ _conf_to_memberp(TSOverridableConfigKey conf, OverridableHttpConfigParams *overr
   case TS_CONFIG_SSL_CERT_FILEPATH:
     typ = OVERRIDABLE_TYPE_STRING;
     ret = &overridableHttpConfig->client_cert_filepath;
+    break;
+  case TS_CONFIG_PARENT_FAILURES_UPDATE_HOSTDB:
+    ret = &overridableHttpConfig->parent_failures_update_hostdb;
+  case TS_CONFIG_SSL_CLIENT_VERIFY_SERVER:
+    typ = OVERRIDABLE_TYPE_INT;
+    ret = &overridableHttpConfig->ssl_client_verify_server;
     break;
   // This helps avoiding compiler warnings, yet detect unhandled enum members.
   case TS_CONFIG_NULL:
@@ -8479,6 +8487,8 @@ TSHttpTxnConfigFind(const char *name, int length, TSOverridableConfigKey *conf, 
       if (!strncmp(name, "proxy.config.http.response_server_str", length)) {
         cnf = TS_CONFIG_HTTP_RESPONSE_SERVER_STR;
         typ = TS_RECORDDATATYPE_STRING;
+      } else if (!strncmp(name, "proxy.config.ssl.client.verify.server", length)) {
+        cnf = TS_CONFIG_SSL_CLIENT_VERIFY_SERVER;
       }
       break;
     case 't':
@@ -8599,6 +8609,8 @@ TSHttpTxnConfigFind(const char *name, int length, TSOverridableConfigKey *conf, 
         cnf = TS_CONFIG_HTTP_ANONYMIZE_REMOVE_COOKIE;
       } else if (!strncmp(name, "proxy.config.http.request_header_max_size", length)) {
         cnf = TS_CONFIG_HTTP_REQUEST_HEADER_MAX_SIZE;
+      } else if (!strncmp(name, "proxy.config.http.safe_requests_retryable", length)) {
+        cnf = TS_CONFIG_HTTP_SAFE_REQUESTS_RETRYABLE;
       }
       break;
     case 'r':
@@ -8774,6 +8786,11 @@ TSHttpTxnConfigFind(const char *name, int length, TSOverridableConfigKey *conf, 
 
   case 47:
     switch (name[length - 1]) {
+    case 'b':
+      if (!strncmp(name, "proxy.config.http.parent_proxy.mark_down_hostdb", length)) {
+        cnf = TS_CONFIG_PARENT_FAILURES_UPDATE_HOSTDB;
+      }
+      break;
     case 'd':
       if (!strncmp(name, "proxy.config.http.negative_revalidating_enabled", length)) {
         cnf = TS_CONFIG_HTTP_NEGATIVE_REVALIDATING_ENABLED;
@@ -9171,6 +9188,59 @@ TSSslContextDestroy(TSSslContext ctx)
   SSLReleaseContext(reinterpret_cast<SSL_CTX *>(ctx));
 }
 
+void TSRegisterProtocolSet(TSVConn sslp, TSNextProtocolSet ps)
+{
+  NetVConnection *vc        = reinterpret_cast<NetVConnection *>(sslp);
+  SSLNetVConnection *ssl_vc = dynamic_cast<SSLNetVConnection *>(vc);
+  if(ssl_vc){
+    ssl_vc->clearnpnSet();
+    ssl_vc->registerNextProtocolSet(reinterpret_cast<SSLNextProtocolSet*>(ps));
+  }
+}
+
+TSNextProtocolSet TSUnregisterProtocol(TSNextProtocolSet protoset, const char* protocol)
+{
+    SSLNextProtocolSet* snps = reinterpret_cast<SSLNextProtocolSet*> (protoset);
+    if(snps){
+        snps->unregisterEndpoint(protocol,nullptr);
+        return reinterpret_cast<TSNextProtocolSet>(snps);
+    }
+    return nullptr;
+}
+
+TSAcceptor TSAcceptorGet(TSVConn sslp)
+{
+  NetVConnection *vc        = reinterpret_cast<NetVConnection *>(sslp);
+  SSLNetVConnection *ssl_vc = dynamic_cast<SSLNetVConnection *>(vc);
+  return ssl_vc?reinterpret_cast<TSAcceptor>(ssl_vc->accept_object):nullptr;
+}
+
+extern std::vector<NetAccept*> naVec;
+TSAcceptor TSAcceptorGetbyID(int ID)
+{
+    Debug("ssl","getNetAccept in INK API.cc %p",naVec.at(ID));
+    return reinterpret_cast<TSAcceptor>(naVec.at(ID));
+}
+
+int TSAcceptorIDGet(TSAcceptor acceptor)
+{
+    NetAccept* na = reinterpret_cast<NetAccept*> (acceptor);
+    return na?na->id:-1;
+}
+
+int TSAcceptorCount()
+{
+     return naVec.size();
+}
+
+//clones the protoset associated with netAccept
+TSNextProtocolSet TSGetcloneProtoSet(TSAcceptor tna)
+{
+    NetAccept* na = reinterpret_cast<NetAccept*>(tna);
+    //clone protoset
+    return (na && na->snpa)? reinterpret_cast<TSNextProtocolSet>(na->snpa->cloneProtoSet()):nullptr;
+}
+
 tsapi int
 TSVConnIsSsl(TSVConn sslp)
 {
@@ -9248,7 +9318,7 @@ TSUuidInitialize(TSUuid uuid, TSUuidVersion v)
   return u->valid() ? TS_SUCCESS : TS_ERROR;
 }
 
-const TSUuid
+TSUuid
 TSProcessUuidGet(void)
 {
   Machine *machine = Machine::instance();

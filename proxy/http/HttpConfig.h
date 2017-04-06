@@ -47,6 +47,7 @@
 #include "HttpProxyAPIEnums.h"
 #include "ProxyConfig.h"
 #include "P_RecProcess.h"
+#include "ts/Vec.h"
 
 /* Instead of enumerating the stats in DynamicStats.h, each module needs
    to enumerate its stats separately and register them with librecords
@@ -379,6 +380,7 @@ struct OverridableHttpConfigParams {
       fwd_proxy_auth_to_parent(0),
       uncacheable_requests_bypass_parent(1),
       attach_server_session_to_client(0),
+      safe_requests_retryable(1),
       forward_connect_method(0),
       insert_age_in_response(1),
       anonymize_remove_from(0),
@@ -409,6 +411,7 @@ struct OverridableHttpConfigParams {
       flow_control_enabled(0),
       normalize_ae_gzip(0),
       srv_enabled(0),
+      parent_failures_update_hostdb(0),
       cache_open_write_fail_action(0),
       post_check_content_length_enabled(1),
       redirection_enabled(0),
@@ -461,6 +464,7 @@ struct OverridableHttpConfigParams {
       default_buffer_size_index(8),
       default_buffer_water_mark(32768),
       slow_log_threshold(0),
+      ssl_client_verify_server(0),
       body_factory_template_base(NULL),
       body_factory_template_base_len(0),
       proxy_response_server_string(NULL),
@@ -498,6 +502,8 @@ struct OverridableHttpConfigParams {
   MgmtByte fwd_proxy_auth_to_parent;
   MgmtByte uncacheable_requests_bypass_parent;
   MgmtByte attach_server_session_to_client;
+
+  MgmtByte safe_requests_retryable;
 
   MgmtByte forward_connect_method;
 
@@ -560,6 +566,7 @@ struct OverridableHttpConfigParams {
   // hostdb/dns variables //
   //////////////////////////
   MgmtByte srv_enabled;
+  MgmtByte parent_failures_update_hostdb;
 
   MgmtByte cache_open_write_fail_action;
 
@@ -665,6 +672,7 @@ struct OverridableHttpConfigParams {
   MgmtInt default_buffer_size_index;
   MgmtInt default_buffer_water_mark;
   MgmtInt slow_log_threshold;
+  MgmtInt ssl_client_verify_server;
 
   ///////////////////////////////////////////////////////////////////
   // Server header                                                 //
@@ -813,6 +821,9 @@ public:
 
   MgmtByte server_session_sharing_pool;
 
+  // Vector to hold the status codes that will BE cached with negative caching enabled
+  Vec<int> codeNegCache;
+
   // All the overridable configurations goes into this class member, but they
   // are not copied over until needed ("lazy").
   OverridableHttpConfigParams oride;
@@ -936,6 +947,12 @@ inline HttpConfigParams::~HttpConfigParams()
   ats_free(cache_vary_default_other);
   ats_free(connect_ports_string);
   ats_free(reverse_proxy_no_host_redirect);
+
+  int len = codeNegCache.n-1;
+  for(int i=len;i>=0;i--){
+    codeNegCache.remove_index(i);
+  }
+  codeNegCache.clear();
 
   if (connect_ports) {
     delete connect_ports;

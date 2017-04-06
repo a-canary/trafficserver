@@ -475,6 +475,8 @@ static const RecordElement RecordsConfig[] =
   ,
   {RECT_CONFIG, "proxy.config.http.attach_server_session_to_client", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
+  {RECT_CONFIG, "proxy.config.http.safe_requests_retryable", RECD_INT, "1", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
+  ,
   {RECT_CONFIG, "proxy.config.net.max_connections_in", RECD_INT, "30000", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
   ,
   {RECT_CONFIG, "proxy.config.net.max_connections_active_in", RECD_INT, "10000", RECU_DYNAMIC, RR_NULL, RECC_STR, "^[0-9]+$", RECA_NULL}
@@ -513,6 +515,8 @@ static const RecordElement RecordsConfig[] =
   {RECT_CONFIG, "proxy.config.http.parent_proxy.per_parent_connect_attempts", RECD_INT, "2", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
   ,
   {RECT_CONFIG, "proxy.config.http.parent_proxy.connect_attempts_timeout", RECD_INT, "30", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
+  ,
+  {RECT_CONFIG, "proxy.config.http.parent_proxy.mark_down_hostdb", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
   {RECT_CONFIG, "proxy.config.http.forward.proxy_auth_to_parent", RECD_INT, "0", RECU_DYNAMIC, RR_NULL, RECC_NULL, nullptr, RECA_NULL}
   ,
@@ -947,9 +951,9 @@ static const RecordElement RecordsConfig[] =
   //  # alternatively: 20971520 (20MB)
   {RECT_CONFIG, "proxy.config.cache.ram_cache.size", RECD_INT, "-1", RECU_RESTART_TS, RR_NULL, RECC_STR, "^-?[0-9]+$", RECA_NULL}
   ,
-  {RECT_CONFIG, "proxy.config.cache.ram_cache.algorithm", RECD_INT, "0", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
+  {RECT_CONFIG, "proxy.config.cache.ram_cache.algorithm", RECD_INT, "1", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
-  {RECT_CONFIG, "proxy.config.cache.ram_cache.use_seen_filter", RECD_INT, "0", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
+  {RECT_CONFIG, "proxy.config.cache.ram_cache.use_seen_filter", RECD_INT, "1", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-1]", RECA_NULL}
   ,
   {RECT_CONFIG, "proxy.config.cache.ram_cache.compress", RECD_INT, "0", RECU_RESTART_TS, RR_NULL, RECC_INT, "[0-3]", RECA_NULL}
   ,

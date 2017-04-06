@@ -73,6 +73,7 @@ c:member:`TS_CONFIG_HTTP_ANONYMIZE_REMOVE_FROM`                     :ts:cv:`prox
 c:member:`TS_CONFIG_HTTP_ANONYMIZE_REMOVE_REFERER`                  :ts:cv:`proxy.config.http.anonymize_remove_referer`
 c:member:`TS_CONFIG_HTTP_ANONYMIZE_REMOVE_USER_AGENT`               :ts:cv:`proxy.config.http.anonymize_remove_user_agent`
 c:member:`TS_CONFIG_HTTP_ATTACH_SERVER_SESSION_TO_CLIENT`           :ts:cv:`proxy.config.http.attach_server_session_to_client`
+c:member:`TS_CONFIG_HTTP_SAFE_REQUESTS_RETRYABLE`                   :ts:cv:`proxy.config.http.safe_requests_retryable`
 c:member:`TS_CONFIG_HTTP_AUTH_SERVER_SESSION_PRIVATE`               :ts:cv:`proxy.config.http.auth_server_session_private`
 c:member:`TS_CONFIG_HTTP_BACKGROUND_FILL_ACTIVE_TIMEOUT`            :ts:cv:`proxy.config.http.background_fill_active_timeout`
 c:member:`TS_CONFIG_HTTP_BACKGROUND_FILL_COMPLETED_THRESHOLD`       :ts:cv:`proxy.config.http.background_fill_completed_threshold`
@@ -139,6 +140,7 @@ c:member:`TS_CONFIG_HTTP_NUMBER_OF_REDIRECTIONS`                    :ts:cv:`prox
 c:member:`TS_CONFIG_HTTP_ORIGIN_MAX_CONNECTIONS`                    :ts:cv:`proxy.config.http.origin_max_connections`
 c:member:`TS_CONFIG_HTTP_ORIGIN_MAX_CONNECTIONS_QUEUE`              :ts:cv:`proxy.config.http.origin_max_connections_queue`
 c:member:`TS_CONFIG_HTTP_PARENT_PROXY_TOTAL_CONNECT_ATTEMPTS`       :ts:cv:`proxy.config.http.parent_proxy.total_connect_attempts`
+c:member:`TS_CONFIG_PARENT_FAILURES_UPDATE_HOSTDB`                  :ts:cv:`proxy.config.http.parent_proxy.mark_down_hostdb`
 c:member:`TS_CONFIG_HTTP_POST_CHECK_CONTENT_LENGTH_ENABLED`         :ts:cv:`proxy.config.http.post.check.content_length.enabled`
 c:member:`TS_CONFIG_HTTP_POST_CONNECT_ATTEMPTS_TIMEOUT`             :ts:cv:`proxy.config.http.post_connect_attempts_timeout`
 c:member:`TS_CONFIG_HTTP_REDIRECT_USE_ORIG_CACHE_KEY`               :ts:cv:`proxy.config.http.redirect_use_orig_cache_key`

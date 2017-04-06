@@ -783,6 +783,12 @@ ip-resolve
 
       9090:proto=http2;http:ssl
 
+.. topic:: Example
+
+   Listen on port 9090 for TSL disabled HTTP/2 and enabled HTTP connections, accept no other session protocols.::
+
+      9090:proto=http:ssl
+
 .. ts:cv:: CONFIG proxy.config.http.connect_ports STRING 443 563
 
    The range of origin server ports that can be used for tunneling via ``CONNECT``.
@@ -1057,6 +1063,19 @@ ip-resolve
    according to this setting then it will be used, otherwise it will be released to the pool and a different session
    selected or created.
 
+.. ts:cv:: CONFIG proxy.config.http.safe_requests_retryable INT 1
+   :overridable:
+
+   This setting, on by default, allows requests which are considered safe to be retried on an error.
+   See https://tools.ietf.org/html/rfc7231#section-4.2.1 to RFC for details on which request methods are considered safe.
+
+   If this setting is ``0`` then ATS retries a failed origin server request only if the bytes sent by ATS
+   are not acknowledged by the origin server.
+
+   If this setting is ``1`` then ATS retries all the safe methods to a failed origin server irrespective of
+   previous connection failure status.
+
+
 .. ts:cv:: CONFIG proxy.config.http.record_heartbeat INT 0
    :reloadable:
 
@@ -1091,7 +1110,7 @@ ip-resolve
          performed. The result is cached (if allowed otherwise). This option is
          vulnerable to cache poisoning if an incorrect ``Host`` header is
          specified, so this option should be used with extreme caution.  See
-         bug :ts:jira:`2954` for details.
+         bug TS-2954 for details.
    ===== ======================================================================
 
    If all of these conditions are met, then the origin server IP address is
@@ -1233,6 +1252,15 @@ Parent Proxy Configuration
    The timeout value (in seconds) for parent cache connection attempts.
 
    See :ref:`admin-performance-timeouts` for more discussion on |TS| timeouts.
+
+.. ts:cv:: CONFIG proxy.config.http.parent_proxy.mark_down_hostdb INT 0
+   :reloadable:
+   :overridable:
+
+   Enables (``1``) or disables (``0``) marking parent proxies down in hostdb when a connection
+   error is detected.  Normally parent selection manages parent proxies and will mark them as unavailable
+   as needed.  But when parents are defined in dns with multiple ip addresses, it may be useful to mark the
+   failing ip down in hostdb.  In this case you would enable these updates.
 
 .. ts:cv:: CONFIG proxy.config.http.forward.proxy_auth_to_parent INT 0
    :reloadable:
@@ -2018,14 +2046,14 @@ RAM Cache
    in memory in order to improve performance.
    **4MB** (4194304)
 
-.. ts:cv:: CONFIG proxy.config.cache.ram_cache.algorithm INT 0
+.. ts:cv:: CONFIG proxy.config.cache.ram_cache.algorithm INT 1
 
    Two distinct RAM caches are supported, the default (0) being the **CLFUS**
    (*Clocked Least Frequently Used by Size*). As an alternative, a simpler
    **LRU** (*Least Recently Used*) cache is also available, by changing this
    configuration to 1.
 
-.. ts:cv:: CONFIG proxy.config.cache.ram_cache.use_seen_filter INT 0
+.. ts:cv:: CONFIG proxy.config.cache.ram_cache.use_seen_filter INT 1
 
    Enabling this option will filter inserts into the RAM cache to ensure that
    they have been seen at least once.  For the **LRU**, this provides scan

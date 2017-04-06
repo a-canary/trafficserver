@@ -1,7 +1,5 @@
 /** @file
-
   @section license License
-
   Licensed to the Apache Software Foundation (ASF) under one
   or more contributor license agreements.  See the NOTICE file
   distributed with this work for additional information
@@ -9,9 +7,7 @@
   to you under the Apache License, Version 2.0 (the
   "License"); you may not use this file except in compliance
   with the License.  You may obtain a copy of the License at
-
       http://www.apache.org/licenses/LICENSE-2.0
-
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -198,7 +194,6 @@ SSL_CTX_add_extra_chain_cert_bio(SSL_CTX *ctx, BIO *bio)
       return false;
     }
   }
-
   return true;
 }
 
@@ -281,8 +276,6 @@ ssl_new_cached_session(SSL *ssl, SSL_SESSION *sess)
 static void
 ssl_rm_cached_session(SSL_CTX *ctx, SSL_SESSION *sess)
 {
-  SSL_CTX_remove_session(ctx, sess);
-
   unsigned int len        = 0;
   const unsigned char *id = SSL_SESSION_get_id(sess, &len);
   SSLSessionID sid(id, len);
@@ -351,10 +344,6 @@ set_context_cert(SSL *ssl)
 
   if (ctx != nullptr) {
     SSL_set_SSL_CTX(ssl, ctx);
-#if HAVE_OPENSSL_SESSION_TICKETS
-    // Reset the ticket callback if needed
-    SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket);
-#endif
   } else {
     found = false;
   }
@@ -404,9 +393,21 @@ ssl_cert_callback(SSL *ssl, void * /*arg*/)
   // Return 1 for success, 0 for error, or -1 to pause
   return retval;
 }
+
+/*
+ * Cannot stop this callback. Always reeneabled
+ */
+static int
+ssl_servername_only_callback(SSL *ssl, int * /* ad */, void * /*arg*/)
+{
+  SSLNetVConnection *netvc = (SSLNetVConnection *)SSL_get_app_data(ssl);
+  netvc->callHooks(TS_EVENT_SSL_SERVERNAME);
+  return SSL_TLSEXT_ERR_OK;
+}
+
 #else
 static int
-ssl_servername_callback(SSL *ssl, int * /* ad */, void * /*arg*/)
+ssl_servername_and_cert_callback(SSL *ssl, int * /* ad */, void * /*arg*/)
 {
   SSLNetVConnection *netvc = SSLNetVCAccess(ssl);
   bool reenabled;
@@ -563,20 +564,13 @@ ssl_context_enable_tickets(SSL_CTX *ctx, const char *ticket_key_path)
     SSL_INCREMENT_DYN_STAT(ssl_total_ticket_keys_renewed_stat);
   }
 
-  // Setting the callback can only fail if OpenSSL does not recognize the
-  // SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB constant. we set the callback first
-  // so that we don't leave a ticket_key pointer attached if it fails.
-  if (SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket) == 0) {
-    Error("failed to set session ticket callback");
-    goto fail;
-  }
+  //
+  // We have already set the default session_ticket callback in the ctx init routine (SSLInitServerContext).
+  //  We don't want to change it now , else it might interfere with a plugin's override.
+  //
 
   SSL_CTX_clear_options(ctx, SSL_OP_NO_TICKET);
   return keyblock;
-
-fail:
-  ticket_block_free(keyblock);
-  return nullptr;
 
 #else  /* !HAVE_OPENSSL_SESSION_TICKETS */
   (void)ticket_key_path;
@@ -834,7 +828,7 @@ SSLInitializeLibrary()
 {
   if (!open_ssl_initialized) {
 // BoringSSL does not have the memory functions
-#ifndef OPENSSL_IS_BORINGSSL
+#ifdef HAVE_CRYPTO_SET_MEM_FUNCTIONS
     if (res_track_memory >= 2) {
       CRYPTO_set_mem_functions(ssl_track_malloc, ssl_track_realloc, ssl_track_free);
     } else {
@@ -883,6 +877,44 @@ SSLInitializeLibrary()
 
   open_ssl_initialized = true;
 }
+
+
+// SSL_CheckThreadLockCallBack() - there is only one CRYPTO locking_callback() per
+// 	execution space and unfortunately, plugins and /or their dependencies
+// 	can mess with our setting and cause threading issues (crashing) down the line.  
+// 	This lightweight mitigation routine, checks and resets if it's wrong.
+// 	It will flag warning, which should help us diagnose the evil deviant plugin.
+
+void SSL_CheckThreadLockCallBack()
+{
+static int numTimesCalledBefore = 0;
+void *tmp;
+
+  if (numTimesCalledBefore > 100000)  {
+      // Though this mitigation check is cheap,  We can probably stop checking 
+      // after we've been running for a little bit and execution paths have been 
+      // exercised.  As the whole point of this is mitigating for something that shouldn't
+      // happen from plugins or their dependencies, we really don't know how long and
+      // when to end, so we ball park this after a conservative 100,000 calls.
+      // if number is too low, we risk a false negative and no correction or warning.
+        return;
+    }
+  else numTimesCalledBefore++;
+
+  if (((void *)SSL_locking_callback) !=  (tmp = (void *) CRYPTO_get_locking_callback())) {
+    Warning("CRYPTO locking_callback() changed. FIXING! bad callback address=%p, suppose to be %p. May have misbehaving plugin\n",
+        tmp, SSL_locking_callback);
+    CRYPTO_set_locking_callback(SSL_locking_callback);
+    }
+
+  if (((void *)SSL_pthreads_thread_id) !=  (tmp = (void *) CRYPTO_THREADID_get_callback())) {
+    Warning("CRYPTO id_callback() changed. FIXING! bad callback address=%p, suppose to be %p. May have misbehaving plugin\n",
+        tmp, SSL_pthreads_thread_id);
+    CRYPTO_THREADID_set_callback(SSL_pthreads_thread_id);
+  }
+}
+
+
 
 void
 SSLInitializeStatistics()
@@ -1190,7 +1222,7 @@ SSLDiagnostic(const SourceLocation &loc, bool debug, SSLNetVConnection *vc, cons
   while ((l = ERR_get_error_line_data(&file, &line, &data, &flags)) != 0) {
     if (debug) {
       if (unlikely(diags->on())) {
-        diags->log("ssl", DL_Debug, &loc, "SSL::%lu:%s:%s:%d%s%s%s%s", es, ERR_error_string(l, buf), file, line,
+        diags->log("ssl-diag", DL_Debug, &loc, "SSL::%lu:%s:%s:%d%s%s%s%s", es, ERR_error_string(l, buf), file, line,
                    (flags & ERR_TXT_STRING) ? ":" : "", (flags & ERR_TXT_STRING) ? data : "", vc ? ": peer address is " : "",
                    ip_buf);
       }
@@ -1214,7 +1246,7 @@ SSLDiagnostic(const SourceLocation &loc, bool debug, SSLNetVConnection *vc, cons
 
   va_start(ap, fmt);
   if (debug) {
-    diags->log_va("ssl", DL_Debug, &loc, fmt, ap);
+    diags->log_va("ssl-diag", DL_Debug, &loc, fmt, ap);
   } else {
     diags->error_va(DL_Error, &loc, fmt, ap);
   }
@@ -1455,8 +1487,9 @@ ssl_set_handshake_callbacks(SSL_CTX *ctx)
 // Make sure the callbacks are set
 #if TS_USE_CERT_CB
   SSL_CTX_set_cert_cb(ctx, ssl_cert_callback, nullptr);
+  SSL_CTX_set_tlsext_servername_callback(ctx, ssl_servername_only_callback);
 #else
-  SSL_CTX_set_tlsext_servername_callback(ctx, ssl_servername_callback);
+  SSL_CTX_set_tlsext_servername_callback(ctx, ssl_servername_and_cert_callback);
 #endif
 #endif
 }
@@ -1467,7 +1500,7 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
   int server_verify_client;
   ats_scoped_str completeServerCertPath;
   SSL_CTX *ctx                 = SSLDefaultServerContext();
-  EVP_MD_CTX *digest           = EVP_MD_CTX_create();
+  EVP_MD_CTX *digest           = EVP_MD_CTX_new();
   STACK_OF(X509_NAME) *ca_list = nullptr;
   unsigned char hash_buf[EVP_MAX_MD_SIZE];
   unsigned int hash_len    = 0;
@@ -1678,7 +1711,6 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
       SSL_CTX_set_client_CA_list(ctx, ca_list);
     }
   }
-  EVP_MD_CTX_init(digest);
 
   if (EVP_DigestInit_ex(digest, evp_md_func, nullptr) == 0) {
     SSLError("EVP_DigestInit_ex failed");
@@ -1715,6 +1747,19 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
     SSLError("SSL_CTX_set_session_id_context failed");
     goto fail;
   }
+
+#if HAVE_OPENSSL_SESSION_TICKETS
+  // We set ATS default ticket callback here and only here after ctx creation, so that if, for example, a plugin
+  // wants to overide our default ATS setting, we won't stomp on it later.
+
+  // Setting the callback can only fail if OpenSSL does not recognize the
+  // SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB constant. we set the callback first
+  // so that we don't leave a ticket_key pointer attached if it fails.
+  if (SSL_CTX_set_tlsext_ticket_key_cb(ctx, ssl_callback_session_ticket) == 0) {
+    Error("failed to set session ticket callback");
+    goto fail;
+  }
+#endif
 
   if (params->cipherSuite != nullptr) {
     if (!SSL_CTX_set_cipher_list(ctx, params->cipherSuite)) {
@@ -1764,8 +1809,7 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
   return ctx;
 
 fail:
-  // EVP_MD_CTX_destroy calls EVP_MD_CTX_cleanup too
-  EVP_MD_CTX_destroy(digest);
+  EVP_MD_CTX_free(digest);
   SSL_CLEAR_PW_REFERENCES(ctx)
   SSLReleaseContext(ctx);
   for (unsigned int i = 0; i < certList.length(); i++) {
@@ -2197,6 +2241,7 @@ SSLReadBuffer(SSL *ssl, void *buf, int64_t nbytes, int64_t &nread)
 ssl_error_t
 SSLAccept(SSL *ssl)
 {
+  SSL_CheckThreadLockCallBack();
   ERR_clear_error();
   int ret = SSL_accept(ssl);
   if (ret > 0) {
@@ -2216,6 +2261,7 @@ SSLAccept(SSL *ssl)
 ssl_error_t
 SSLConnect(SSL *ssl)
 {
+  SSL_CheckThreadLockCallBack();
   ERR_clear_error();
   int ret = SSL_connect(ssl);
   if (ret > 0) {

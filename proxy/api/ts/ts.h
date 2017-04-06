@@ -1235,6 +1235,13 @@ tsapi TSSslContext TSSslContextFindByAddr(struct sockaddr const *);
 // Create a new SSL context based on the settings in records.config
 tsapi TSSslContext TSSslServerContextCreate(void);
 tsapi void TSSslContextDestroy(TSSslContext ctx);
+tsapi TSNextProtocolSet TSUnregisterProtocol(TSNextProtocolSet protoset, const char* protocol);
+TSAcceptor TSAcceptorGet(TSVConn sslp);
+TSNextProtocolSet TSGetcloneProtoSet(TSAcceptor tna);
+TSAcceptor TSAcceptorGetbyID(int ID);
+void TSRegisterProtocolSet(TSVConn sslp, TSNextProtocolSet ps);
+int TSAcceptorCount();
+int TSAcceptorIDGet(TSAcceptor acceptor);
 
 // Returns 1 if the sslp argument refers to a SSL connection
 tsapi int TSVConnIsSsl(TSVConn sslp);
@@ -1711,7 +1718,6 @@ tsapi TSVConn TSTransformOutputVConnGet(TSVConn connp);
 
 /* --------------------------------------------------------------------------
    Net VConnections */
-
 tsapi struct sockaddr const *TSNetVConnRemoteAddrGet(TSVConn vc);
 tsapi void TSNetVConnSSLCachedHitSet(TSVConn vc, bool state);
 
@@ -2413,7 +2419,7 @@ tsapi TSReturnCode TSUuidStringParse(TSUuid uuid, const char *uuid_str);
 tsapi TSReturnCode TSClientRequestUuidGet(TSHttpTxn txnp, char *uuid_str);
 
 /* Get the process global UUID, resets on every startup */
-tsapi const TSUuid TSProcessUuidGet(void);
+tsapi TSUuid TSProcessUuidGet(void);
 
 /**
    Returns the plugin_tag.

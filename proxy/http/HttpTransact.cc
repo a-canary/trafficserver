@@ -219,33 +219,32 @@ find_appropriate_cached_resp(HttpTransact::State *s)
 }
 
 int response_cacheable_indicated_by_cc(HTTPHdr *response);
+bool
+lt(int x, int y)
+{
+  return x < y;
+}
 
+bool
+eq(int x, int y)
+{
+  return x == y;
+}
 inline static bool
 is_negative_caching_appropriate(HttpTransact::State *s)
 {
   if (!s->txn_conf->negative_caching_enabled || !s->hdr_info.server_response.valid()) {
     return false;
   }
-
-  switch (s->hdr_info.server_response.status_get()) {
-  case HTTP_STATUS_NO_CONTENT:
-  case HTTP_STATUS_USE_PROXY:
-  case HTTP_STATUS_BAD_REQUEST:
-  case HTTP_STATUS_FORBIDDEN:
-  case HTTP_STATUS_NOT_FOUND:
-  case HTTP_STATUS_METHOD_NOT_ALLOWED:
-  case HTTP_STATUS_REQUEST_URI_TOO_LONG:
-  case HTTP_STATUS_INTERNAL_SERVER_ERROR:
-  case HTTP_STATUS_NOT_IMPLEMENTED:
-  case HTTP_STATUS_BAD_GATEWAY:
-  case HTTP_STATUS_SERVICE_UNAVAILABLE:
-  case HTTP_STATUS_GATEWAY_TIMEOUT:
+  int status  = s->hdr_info.server_response.status_get();
+  auto params = HttpConfig::acquire();
+  if (params->codeNegCache.binary_search(lt, eq, status)) {
+    DebugTxn("http_trans", "%d is eligible for negative caching", status);
     return true;
-  default:
-    break;
+  } else {
+    DebugTxn("http_trans", "%d is NOT eligible for negative caching", status);
+    return false;
   }
-
-  return false;
 }
 
 inline static HttpTransact::LookingUp_t
@@ -3571,7 +3570,11 @@ HttpTransact::handle_response_from_parent(State *s)
       ink_assert(s->hdr_info.server_request.valid());
 
       s->current.server->connect_result = ENOTCONN;
-      s->state_machine->do_hostdb_update_if_necessary();
+      // only mark the parent down in hostdb if the configuration allows it,
+      // see proxy.config.http.parent_proxy.mark_down_hostdb in records.config.
+      if (s->txn_conf->parent_failures_update_hostdb) {
+        s->state_machine->do_hostdb_update_if_necessary();
+      }
 
       char addrbuf[INET6_ADDRSTRLEN];
       DebugTxn("http_trans", "[%d] failed to connect to parent %s", s->current.attempts,
@@ -6487,9 +6490,12 @@ HttpTransact::is_request_valid(State *s, HTTPHdr *incoming_request)
 bool
 HttpTransact::is_request_retryable(State *s)
 {
+  // If safe requests are  retryable, it should be safe to retry safe requests irrespective of bytes sent or connection state
+  // according to RFC the following methods are safe (https://tools.ietf.org/html/rfc7231#section-4.2.1)
   // If there was no error establishing the connection (and we sent bytes)-- we cannot retry
-  if (s->current.state != CONNECTION_ERROR && s->state_machine->server_request_hdr_bytes > 0 &&
-      s->state_machine->get_server_session()->get_netvc()->outstanding() != s->state_machine->server_request_hdr_bytes) {
+  if (!(s->txn_conf->safe_requests_retryable && HttpTransactHeaders::is_method_safe(s->method)) &&
+      (s->current.state != CONNECTION_ERROR && s->state_machine->server_request_hdr_bytes > 0 &&
+       s->state_machine->get_server_session()->get_netvc()->outstanding() != s->state_machine->server_request_hdr_bytes)) {
     return false;
   }
 
@@ -8344,6 +8350,8 @@ HttpTransact::get_error_string(int erno)
     //              when HttpSM.cc::state_origin_server_read_response
     //                 receives an HTTP_EVENT_EOS. (line 1729 in HttpSM.cc,
     //                 version 1.145.2.13.2.57)
+    case ENET_CONNECT_FAILED:
+      return ("connect failed");
     case UNKNOWN_INTERNAL_ERROR:
       return ("internal error - server connection terminated");
     default:

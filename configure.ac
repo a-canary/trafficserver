@@ -220,6 +220,19 @@ AC_ARG_ENABLE([fast-sdk],
 AC_MSG_RESULT([$enable_fast_sdk])
 TS_ARG_ENABLE_VAR([use], [fast-sdk])
 
+# Curl support for traffic_top
+AC_MSG_CHECKING([whether to enable CURL])
+AC_ARG_ENABLE([curl],
+  [AS_HELP_STRING([--disable-curl],[turn off CURL support for traffic_top])],
+  [],
+  [enable_curl=yes]
+)
+AC_MSG_RESULT([$enable_curl])
+
+if test "x${enable_curl}" = "xyes"; then
+AX_LIB_CURL([7.19], [AC_DEFINE([HAS_CURL], [1], [Define if libcurl >= 7.19.])])
+fi
+
 #
 # Diags
 #
@@ -770,24 +783,10 @@ AS_IF([test "x${has_optimizer_flags}" = "xno"],
 case $host_os_def in
   linux)
     AS_IF([test "x$ax_cv_c_compiler_vendor" = "xintel"], [
-      # -Wall goes crazy, so turned these specific checks off for now:
+      # -Wall is overzealous for us, so need to turn this off for now:
       #
-      #  111 is "statement is unreachable"
-      #  279 is "controlling expression is constant", triggered by our asserts
-      #  383 is "value copied to temporary, reference to temporary used"
-      #  444 is "destructor for base class is not virtual"
-      #  522 is "function "xyz" redeclared "inline" after being called
-      #  873 is "has no corresponding operator delete". ToDo: we should fix.
-      #  981 is "operands are evaluated in unspecified order"
-      # 1418 is "external function definition with no prior declaration"
-      # 1419 is "external declaration in primary source file"
-      # 1572 is "floating-point equality and inequality comparisons are unreliable"
-      # 1720 is "operator new" has no corresponding member operator delete"
-      # 2256 is "non-pointer conversion from "int" to "unsigned char" "
-      # 2259 is "non-pointer conversion from "int" to "unsigned char" "
-      #
-      # TODO: We should try to eliminate more of these -wd exclusions.
-      common_opt="-pipe -Wall -wd111 -wd279 -wd383 -wd522 -wd444 -wd873 -wd981 -wd1418 -wd1419 -wd1572 -wd1720 -wd2256 -wd2259"
+      #  #873 is "has no corresponding operator delete"
+      common_opt="-pipe -Wall -wd873"
       debug_opt="-ggdb3 $common_opt"
       release_opt="-g $common_opt $optimization_flags -axsse4.2 -fno-strict-aliasing"
       cxx_opt="-Wno-invalid-offsetof"
@@ -1091,13 +1090,6 @@ TS_REMOVEFROM(CFLAGS, -Werror)
 AX_WITH_CURSES
 CFLAGS="$__saved_CFLAGS"
 
-AX_LIB_CURL([7.19], [
-    AM_CONDITIONAL([BUILD_TRAFFIC_TOP], [test "x$ax_cv_curses" = "xyes"])
-  ], [
-    AM_CONDITIONAL([BUILD_TRAFFIC_TOP], [false])
-  ]
-)
-
 #
 # Check for SSL presence and usability
 TS_CHECK_CRYPTO
@@ -1127,6 +1119,38 @@ TS_CHECK_CRYPTO_SET_RBIO
 
 # Check for DH_get_2048_256
 TS_CHECK_CRYPTO_DH_GET_2048_256
+
+saved_LIBS="$LIBS"
+TS_ADDTO([LIBS], ["$OPENSSL_LIBS"])
+
+AC_CHECK_FUNCS([ \
+  BIO_meth_new \
+  BIO_sock_non_fatal_error \
+  CRYPTO_set_mem_functions \
+  HMAC_CTX_new \
+])
+
+AC_CHECK_FUNC([BIO_set_data], [],
+              [AC_DEFINE([BIO_set_data(a, _ptr)], [((a)->ptr = (_ptr))], [Added in OpenSSL 1.1])])
+AC_CHECK_FUNC([BIO_get_data], [],
+              [AC_DEFINE([BIO_get_data(a)], [((a)->ptr)], [Added in OpenSSL 1.1])])
+AC_CHECK_FUNC([BIO_get_shutdown], [],
+              [AC_DEFINE([BIO_get_shutdown(a)], [((a)->shutdown)], [Added in OpenSSL 1.1])])
+AC_CHECK_FUNC([BIO_meth_get_ctrl], [],
+              [AC_DEFINE([BIO_meth_get_ctrl(biom)], [((biom)->ctrl)], [Added in OpenSSL 1.1])])
+AC_CHECK_FUNC([BIO_meth_get_create], [],
+              [AC_DEFINE([BIO_meth_get_create(biom)], [((biom)->create)], [Added in OpenSSL 1.1])])
+AC_CHECK_FUNC([BIO_meth_get_destroy], [],
+              [AC_DEFINE([BIO_meth_get_destroy(biom)], [((biom)->destroy)], [Added in OpenSSL 1.1])])
+
+AC_CHECK_FUNC([EVP_MD_CTX_new], [],
+              [AC_DEFINE([EVP_MD_CTX_new], [EVP_MD_CTX_create], [Renamed in OpenSSL 1.1])])
+AC_CHECK_FUNC([EVP_MD_CTX_reset], [],
+              [AC_DEFINE([EVP_MD_CTX_reset], [EVP_MD_CTX_cleanup], [Renamed in OpenSSL 1.1])])
+AC_CHECK_FUNC([EVP_MD_CTX_free], [],
+              [AC_DEFINE([EVP_MD_CTX_free], [EVP_MD_CTX_destroy], [Renamed in OpenSSL 1.1])])
+
+LIBS="$saved_LIBS"
 
 #
 # Check for zlib presence and usability
@@ -1270,7 +1294,7 @@ AC_SUBST(use_port)
 # Profiler support
 has_profiler=0
 if test "x${with_profiler}" = "xyes"; then
-  AC_SEARCH_LIBS([ProfilerStart], [profiler],
+  AC_CHECK_LIB([profiler], [ProfilerStart],
     [AC_SUBST([LIBPROFILER], ["-lprofiler"])
      has_profiler=1
     ],
@@ -1298,7 +1322,7 @@ TS_TRY_COMPILE_NO_WARNING([],[
     has_128bit_cas=1
   ], [
     dnl If 128bit CAS fails, try again with the -mcx16 option. GCC needs this;
-    dnl clang doesn't; icc is unknown but presumed sane.
+    dnl clang doesn't; icc does not support -mcx16 (but gives a non-fatal warning).
     TS_ADDTO(CXXFLAGS, [-mcx16])
     TS_ADDTO(CFLAGS, [-mcx16])
     TS_TRY_COMPILE_NO_WARNING([],[
@@ -1318,15 +1342,17 @@ AC_LANG_POP
 AC_SUBST(has_128bit_cas)
 
 AS_IF([test "x$has_128bit_cas" = "x1"], [
-  TS_ADDTO(CFLAGS, [-mcx16])
-  TS_ADDTO(CXXFLAGS, [-mcx16])
+  AS_IF([test "x$ax_cv_c_compiler_vendor" != "xintel"], [
+    TS_ADDTO(CFLAGS, [-mcx16])
+    TS_ADDTO(CXXFLAGS, [-mcx16])
+  ])
 ])
 
 # Check for POSIX capabilities library.
 # If we don't find it, disable checking for header.
 use_posix_cap=0
 AS_IF([test "x$enable_posix_cap" != "xno"],
-  AC_SEARCH_LIBS([cap_set_proc],[cap],
+  AC_CHECK_LIB([cap], [cap_set_proc],
     [AC_SUBST([LIBCAP], ["-lcap"])
      use_posix_cap=1
     ],[
@@ -1447,6 +1473,9 @@ AC_SUBST([LUAJIT_CPPFLAGS], ['-I$(abs_top_srcdir)/lib/luajit/src'])
 
 # We should be able to build http_load if epoll(2) is available.
 AM_CONDITIONAL([BUILD_HTTP_LOAD], [test x"$ac_cv_func_epoll_ctl" = x"yes"])
+
+# We should only build traffic_top if we have curses
+AM_CONDITIONAL([BUILD_TRAFFIC_TOP], [test "x$ax_cv_curses" = "xyes"])
 
 AC_CHECK_HEADERS([mysql/mysql.h], [has_mysql=1],[has_mysql=0])
 AC_CHECK_LIB([mysqlclient],[mysql_info],[AC_SUBST([LIB_MYSQLCLIENT],["-lmysqlclient"])],[has_mysql=0])

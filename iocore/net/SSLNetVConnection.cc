@@ -27,6 +27,7 @@
 #include "P_SSLNextProtocolSet.h"
 #include "P_SSLUtils.h"
 #include "InkAPIInternal.h" // Added to include the ssl_hook definitions
+#include "P_SSLClientUtils.h"
 #include "P_SSLConfig.h"
 #include "BIO_fastopen.h"
 #include "Log.h"
@@ -850,8 +851,9 @@ SSLNetVConnection::do_io_close(int lerrno)
 void
 SSLNetVConnection::free(EThread *t)
 {
-  got_remote_addr = 0;
-  got_local_addr  = 0;
+  clientVerifyEnable = false;
+  got_remote_addr    = 0;
+  got_local_addr     = 0;
   read.vio.mutex.clear();
   write.vio.mutex.clear();
   this->mutex.clear();
@@ -915,7 +917,6 @@ SSLNetVConnection::free(EThread *t)
     THREAD_FREE(this, sslNetVCAllocator, t);
   }
 }
-
 int
 SSLNetVConnection::sslStartHandShake(int event, int &err)
 {
@@ -994,11 +995,16 @@ SSLNetVConnection::sslStartHandShake(int event, int &err)
         clientCTX = params->client_ctx;
       }
       this->ssl = make_ssl_connection(clientCTX, this);
-
       if (this->ssl == nullptr) {
         SSLErrorVC(this, "failed to create SSL client session");
         return EVENT_ERROR;
       }
+
+      // Making the check here instead of later, so we only
+      // do this setting immediately after we create the SSL object
+      int clientVerify = this->getClientVerifyEnable();
+      int verifyValue  = clientVerify ? SSL_VERIFY_PEER : SSL_VERIFY_NONE;
+      SSL_set_verify(this->ssl, verifyValue, verify_callback);
 
 #if TS_USE_TLS_SNI
       if (this->options.sni_servername) {
@@ -1321,7 +1327,7 @@ SSLNetVConnection::sslClientHandShakeEvent(int &err)
 
   case SSL_ERROR_SSL:
   default: {
-    err = errno;
+    err = (errno) ? errno : -ENET_CONNECT_FAILED;
     // FIXME -- This triggers a retry on cases of cert validation errors....
     Debug("ssl", "SSLNetVConnection::sslClientHandShakeEvent, SSL_ERROR_SSL");
     SSL_CLR_ERR_INCR_DYN_STAT(this, ssl_error_ssl, "SSLNetVConnection::sslClientHandShakeEvent, SSL_ERROR_SSL errno=%d", errno);
@@ -1338,7 +1344,7 @@ SSLNetVConnection::sslClientHandShakeEvent(int &err)
 }
 
 void
-SSLNetVConnection::registerNextProtocolSet(const SSLNextProtocolSet *s)
+SSLNetVConnection::registerNextProtocolSet( SSLNextProtocolSet *s)
 {
   ink_release_assert(this->npnSet == nullptr);
   this->npnSet = s;
@@ -1353,7 +1359,6 @@ SSLNetVConnection::advertise_next_protocol(SSL *ssl, const unsigned char **out, 
   SSLNetVConnection *netvc = SSLNetVCAccess(ssl);
 
   ink_release_assert(netvc != nullptr);
-
   if (netvc->npnSet && netvc->npnSet->advertiseProtocols(out, outlen)) {
     // Successful return tells OpenSSL to advertise.
     return SSL_TLSEXT_ERR_OK;
@@ -1373,7 +1378,6 @@ SSLNetVConnection::select_next_protocol(SSL *ssl, const unsigned char **out, uns
   unsigned npnsz           = 0;
 
   ink_release_assert(netvc != nullptr);
-
   if (netvc->npnSet && netvc->npnSet->advertiseProtocols(&npn, &npnsz)) {
 // SSL_select_next_proto chooses the first server-offered protocol that appears in the clients protocol set, ie. the
 // server selects the protocol. This is a n^2 search, so it's preferable to keep the protocol set short.
@@ -1438,17 +1442,22 @@ bool
 SSLNetVConnection::callHooks(TSEvent eventId)
 {
   // Only dealing with the SNI/CERT hook so far.
-  ink_assert(eventId == TS_EVENT_SSL_CERT);
+  ink_assert(eventId == TS_EVENT_SSL_CERT || eventId == TS_EVENT_SSL_SERVERNAME);
   Debug("ssl", "callHooks sslHandshakeHookState=%d", this->sslHandshakeHookState);
 
   // First time through, set the type of the hook that is currently being invoked
-  if (HANDSHAKE_HOOKS_PRE == sslHandshakeHookState) {
+  if ((this->sslHandshakeHookState == HANDSHAKE_HOOKS_PRE || this->sslHandshakeHookState == HANDSHAKE_HOOKS_DONE) &&
+      eventId == TS_EVENT_SSL_CERT) {
     // the previous hook should be DONE and set curHook to nullptr before trigger the sni hook.
     ink_assert(curHook == nullptr);
     // set to HOOKS_CERT means CERT/SNI hooks has called by SSL_accept()
     this->sslHandshakeHookState = HANDSHAKE_HOOKS_CERT;
     // get Hooks
     curHook = ssl_hooks->get(TS_SSL_CERT_INTERNAL_HOOK);
+  } else if (eventId == TS_EVENT_SSL_SERVERNAME) {
+    if (!curHook) {
+      curHook = ssl_hooks->get(TS_SSL_SERVERNAME_INTERNAL_HOOK);
+    }
   } else {
     // Not in the right state
     // reenable and continue
@@ -1457,14 +1466,20 @@ SSLNetVConnection::callHooks(TSEvent eventId)
 
   bool reenabled = true;
   if (curHook != nullptr) {
-    // Otherwise, we have plugin hooks to run
     this->sslHandshakeHookState = HANDSHAKE_HOOKS_INVOKE;
     curHook->invoke(eventId, this);
-    reenabled = (this->sslHandshakeHookState != HANDSHAKE_HOOKS_INVOKE);
-  } else {
-    // no SNI-Hooks set, set state to HOOKS_DONE
-    // no plugins registered for this hook, return (reenabled == true)
-    sslHandshakeHookState = HANDSHAKE_HOOKS_DONE;
+    reenabled = eventId != TS_EVENT_SSL_CERT || (this->sslHandshakeHookState != HANDSHAKE_HOOKS_INVOKE);
+  }
+
+  // All done with the current hook chain
+  if (curHook == nullptr) {
+    if (eventId == TS_EVENT_SSL_CERT) {
+      // Set the HookState to done because we are all done with the CERT/SERVERNAME hook chains
+      sslHandshakeHookState = HANDSHAKE_HOOKS_DONE;
+    } else if (eventId == TS_EVENT_SSL_SERVERNAME) {
+      // Reset the HookState to PRE, so the cert hook chain can start
+      sslHandshakeHookState = HANDSHAKE_HOOKS_PRE;
+    }
   }
   return reenabled;
 }

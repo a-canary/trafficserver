@@ -27,13 +27,66 @@
 
 #include "BIO_fastopen.h"
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-#define BIO_set_data(a, _ptr) ((a)->ptr = (_ptr))
-#define BIO_get_data(a) ((a)->ptr)
-#define BIO_get_shutdown(a) ((a)->shutdown)
-#define BIO_meth_get_ctrl(biom) ((biom)->ctrl)
-#define BIO_meth_get_create(biom) ((biom)->create)
-#define BIO_meth_get_destroy(biom) ((biom)->destroy)
+// For BoringSSL, which for some reason doesn't have this function.
+// (In BoringSSL, sock_read() and sock_write() use the internal
+// bio_fd_non_fatal_error() instead.) #1437
+//
+// The following is copied from
+// https://github.com/openssl/openssl/blob/3befffa39dbaf2688d823fcf2bdfc07d2487be48/crypto/bio/bss_sock.c
+// Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
+#ifndef HAVE_BIO_SOCK_NON_FATAL_ERROR
+int
+BIO_sock_non_fatal_error(int err)
+{
+  switch (err) {
+#if defined(OPENSSL_SYS_WINDOWS)
+#if defined(WSAEWOULDBLOCK)
+  case WSAEWOULDBLOCK:
+#endif
+#endif
+
+#ifdef EWOULDBLOCK
+#ifdef WSAEWOULDBLOCK
+#if WSAEWOULDBLOCK != EWOULDBLOCK
+  case EWOULDBLOCK:
+#endif
+#else
+  case EWOULDBLOCK:
+#endif
+#endif
+
+#if defined(ENOTCONN)
+  case ENOTCONN:
+#endif
+
+#ifdef EINTR
+  case EINTR:
+#endif
+
+#ifdef EAGAIN
+#if EWOULDBLOCK != EAGAIN
+  case EAGAIN:
+#endif
+#endif
+
+#ifdef EPROTO
+  case EPROTO:
+#endif
+
+#ifdef EINPROGRESS
+  case EINPROGRESS:
+#endif
+
+#ifdef EALREADY
+  case EALREADY:
+#endif
+    return (1);
+  /* break; */
+  default:
+    break;
+  }
+  return (0);
+}
 #endif
 
 static int (*fastopen_create)(BIO *) = BIO_meth_get_create(const_cast<BIO_METHOD *>(BIO_s_socket()));
@@ -127,7 +180,7 @@ fastopen_ctrl(BIO *bio, int cmd, long larg, void *ptr)
   return BIO_meth_get_ctrl(const_cast<BIO_METHOD *>(BIO_s_socket()))(bio, cmd, larg, ptr);
 }
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#ifndef HAVE_BIO_METH_NEW
 static const BIO_METHOD fastopen_methods[] = {{
   .type          = BIO_TYPE_SOCKET,
   .name          = "fastopen",
