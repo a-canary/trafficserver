@@ -1208,7 +1208,6 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
   const ssize_t window_size         = min(this->client_rwnd, stream->client_rwnd);
   const size_t buf_len              = BUFFER_SIZE_FOR_INDEX(buffer_size_index[HTTP2_FRAME_TYPE_DATA]);
   const size_t write_available_size = min(buf_len, static_cast<size_t>(window_size));
-  size_t read_available_size        = 0;
 
   uint8_t flags = 0x00;
   uint8_t payload_buffer[buf_len];
@@ -1216,12 +1215,8 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
 
   SCOPED_MUTEX_LOCK(stream_lock, stream->mutex, this_ethread());
 
-  if (current_reader) {
-    read_available_size = static_cast<size_t>(current_reader->read_avail());
-  }
-
   // Select appropriate payload length
-  if (read_available_size > 0) {
+  if (current_reader && current_reader->is_read_avail_more_than(0)) {
     // We only need to check for window size when there is a payload
     if (window_size <= 0) {
       return HTTP2_SEND_A_DATA_FRAME_NO_WINDOW;
@@ -1239,7 +1234,7 @@ Http2ConnectionState::send_a_data_frame(Http2Stream *stream, size_t &payload_len
     return HTTP2_SEND_A_DATA_FRAME_NO_PAYLOAD;
   }
 
-  if (stream->is_body_done() && read_available_size <= write_available_size) {
+  if (stream->is_body_done() && !(current_reader && current_reader->is_read_avail_more_than(0))) {
     flags |= HTTP2_FLAGS_DATA_END_STREAM;
   }
 

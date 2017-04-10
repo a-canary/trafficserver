@@ -2217,25 +2217,31 @@ ssl_error_t
 SSLReadBuffer(SSL *ssl, void *buf, int64_t nbytes, int64_t &nread)
 {
   nread = 0;
+  int offset = 0;
+  int ret = 0;
+  int ssl_error = SSL_ERROR_NONE;
 
   if (unlikely(nbytes == 0)) {
     return SSL_ERROR_NONE;
   }
-  ERR_clear_error();
-  int ret = SSL_read(ssl, buf, (int)nbytes);
-  if (ret > 0) {
-    nread = ret;
-    return SSL_ERROR_NONE;
-  }
-  int ssl_error = SSL_get_error(ssl, ret);
-  if (ssl_error == SSL_ERROR_SSL && is_debug_tag_set("ssl.error.read")) {
-    char buf[512];
-    unsigned long e = ERR_peek_last_error();
-    ERR_error_string_n(e, buf, sizeof(buf));
-    Debug("ssl.error.read", "SSL read returned %d, ssl_error=%d, ERR_get_error=%ld (%s)", ret, ssl_error, e, buf);
-  }
+  do {
+    ERR_clear_error();
+    ret = SSL_read(ssl, (char *)buf + offset, (int)nbytes - offset);
+    if (ret > 0) {
+      nread += ret;
+      offset += ret;
+    } else {
+      ssl_error = SSL_get_error(ssl, ret);
+      if (ssl_error == SSL_ERROR_SSL && is_debug_tag_set("ssl.error.read")) {
+        char buf[512];
+        unsigned long e = ERR_peek_last_error();
+        ERR_error_string_n(e, buf, sizeof(buf));
+        Debug("ssl.error.read", "SSL read returned %d, ssl_error=%d, ERR_get_error=%ld (%s)", ret, ssl_error, e, buf);
+      }
+    }
+  } while (ret > 0  && offset < nbytes);
 
-  return ssl_error;
+  return nread > 0 ? SSL_ERROR_NONE : ssl_error;
 }
 
 ssl_error_t
