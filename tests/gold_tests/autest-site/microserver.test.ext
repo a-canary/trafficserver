@@ -109,6 +109,7 @@ def MakeOriginServer(obj, name,public_ip=False):
     p.Command = command
     p.Setup.MakeDir(data_dir)
     p.Variables.DataDir = data_dir
+    p.Ready = When.PortOpen(port)
     AddMethodToInstance(p,addResponse)
     AddMethodToInstance(p,addTransactionToSession)
     
