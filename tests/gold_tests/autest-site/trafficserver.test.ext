@@ -48,10 +48,12 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True):
     # contains plugins
     plugin_dir = os.path.join(ts_dir, obj.Variables.PLUGINDIR.replace(obj.Variables.PREFIX+"/",""))
     # the log directory
-    log_dir=os.path.join(ts_dir, 'log')
-    runtime_dir=os.path.join(ts_dir, obj.Variables.RUNTIMEDIR.replace(obj.Variables.PREFIX+"/",""))
-    ssl_dir=os.path.join(ts_dir, 'ssl')
-    
+    log_dir = os.path.join(ts_dir, 'log')
+    runtime_dir = os.path.join(
+        ts_dir, obj.Variables.RUNTIMEDIR.replace(obj.Variables.PREFIX + "/", ""))
+    ssl_dir = os.path.join(ts_dir, 'ssl')
+    storage_dir = os.path.join(ts_dir, 'storage')
+
     # create process
     p = obj.Processes.Process(name, command)
     
@@ -121,12 +123,20 @@ def MakeATSProcess(obj, name, command='traffic_server', select_ports=True):
 
     # set env so traffic server uses correct locations
     p.Env['PROXY_CONFIG_SSL_DIR'] = ssl_dir
-    p.Variables.SSLDir=ssl_dir
-    AddMethodToInstance(p,addSSLfile)
-    ######################################################### 
-    # define the basic file for a given test run 
-    #traffic.out ?? # cannot find it at the moment...
-    #squid.log
+    p.Variables.SSLDir = ssl_dir
+    AddMethodToInstance(p, addSSLfile)
+    ########################################################
+    # cache.db directory
+    p.Setup.MakeDir(storage_dir)
+    p.Setup.Chown(storage_dir, "nobody", "nobody", ignore=True)
+
+    # set env so traffic server uses correct locations
+    p.Env['PROXY_CONFIG_STORAGE_DIR'] = storage_dir
+    p.Variables.STORAGEDIR = storage_dir
+    #########################################################
+    # define the basic file for a given test run
+    # traffic.out ?? # cannot find it at the moment...
+    # squid.log
     fname = "squid.log"
     tmpname = os.path.join(log_dir, fname)
     p.Disk.File(tmpname, id=make_id(fname))
