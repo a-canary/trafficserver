@@ -1,0 +1,72 @@
+Jason’s Setup 
+
+Create a new test box.
+Goto https://openhouse.corp.yahoo.com/project
+Images > v-4-16-50 > launch
+Wait 10 minutes…
+Copy formlukewarm.corp.ne1.yahoo.com
+
+Connect to test box.
+Open terminal
+yinit
+ssh -A formlukewarm.corp.ne1.yahoo.com
+
+Run Bootstrap & test box environment setup
+git clone git@partner.git.corp.yahoo.com:Edge/build.git
+cd build
+git checkout release_master
+. bootstrap.sh 
+sudo yum install devtoolset-6
+
+. /opt/rh/devtoolset-6/enable 
+
+. /opt/rh/httpd24/enable
+
+
+. /opt/rh/rh-python35/enable
+
+make build
+
+make test
+
+
+
+While that is running install VSCode on your Mac. 
+https://code.visualstudio.com/
+Welcome > Clone Git repo… > 
+	~/yts 
+	https://partner.git.corp.yahoo.com/Edge/trafficserver.git
+View > extensions > install c++, and rsync.
+
+Tell Rsync to push changes to your test box.
+Explorer > yts > trafficserver > .vscode > settings.json : add 
+{
+	"sync-rsync.remote": "formlukewarm.corp.ne1.yahoo.com:~/build/trafficserver",
+   	"sync-rsync.onSave": true,
+	"sync-rsync.exclude": [".vscode"]
+}	
+
+Edit and Test Code changes
+Make test
+
+VSCode - Edit code locally
+
+cd trafficserver
+
+autoconf -if
+
+./configure --enable-layout=Yahoo --prefix="/home/acanary/test_install" --disable-curl --enable-experimental-plugins --with-openssl=/opt/yahoo/openssl/1.0.2k CFLAGS="-ggdb -O2" LDFLAGS="-Wl,--add-needed -L/home/y/lib64 -Wl,-rpath,/home/y/lib64"
+make all
+sudo make install
+sudo ./tests/autest.sh --ats-bin /home/acanary/test_install/bin64 --sandbox /home/acanary/sb
+
+
+
+Create fork on git.com
+Cherry pick your branch
+push
+Pull request from git.com
+
+If all pass
+
+
