@@ -463,6 +463,7 @@ struct HostDBContinuation : public Continuation {
   int clusterEvent(int event, Event *e);
   int clusterResponseEvent(int event, Event *e);
   int dnsEvent(int event, HostEnt *e);
+  int dnsEventHandleFailure(int event);
   int dnsPendingEvent(int event, Event *e);
   int backgroundEvent(int event, Event *e);
   int retryEvent(int event, Event *e);

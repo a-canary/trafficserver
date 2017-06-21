@@ -39,6 +39,8 @@
 
 #include "ts/ink_apidefs.h"
 
+#define DEBUG 1
+
 HostDBProcessor hostDBProcessor;
 int HostDBProcessor::hostdb_strict_round_robin = 0;
 int HostDBProcessor::hostdb_timed_round_robin  = 0;
@@ -1232,234 +1234,273 @@ HostDBContinuation::dnsEvent(int event, HostEnt *e)
     // do not exit yet, wait to see if we can insert into DB
     timeout = thread->schedule_in(this, HRTIME_SECONDS(hostdb_insert_timeout));
     return EVENT_DONE;
+  }
+
+  if (!e) {
+    return dnsEventHandleFailure(event);
+  }
+
+  bool is_rr     = false;
+  pending_action = nullptr;
+
+  if (is_srv()) {
+    is_rr = (e->srv_hosts.srv_host_count > 0);
   } else {
-    bool failed = !e;
+    is_rr = nullptr != e->ent.h_addr_list[1];
+  }
 
-    bool is_rr     = false;
-    pending_action = nullptr;
+  ttl             = e->ttl / 60;
+  int ttl_seconds = e->ttl; // ebalsa: moving to second accuracy
 
+  Ptr<HostDBInfo> old_r = probe(mutex.get(), md5, false);
+  // TODO: we should swap pointers on update, not copy on read
+  HostDBInfo old_info;
+  if (old_r) {
+    old_info = *old_r.get();
+  }
+  HostDBRoundRobin *old_rr_data = old_r ? old_r->rr() : nullptr;
+  int valid_records             = 0;
+  void *first_record            = nullptr;
+  uint8_t af                    = e->ent.h_addrtype; // address family
+  // if this is an RR response, we need to find the first record, as well as the
+  // total number of records
+  if (is_rr) {
     if (is_srv()) {
-      is_rr = !failed && (e->srv_hosts.srv_host_count > 0);
-    } else if (!failed) {
-      is_rr = nullptr != e->ent.h_addr_list[1];
+      valid_records = e->srv_hosts.srv_host_count;
     } else {
-    }
-
-    ttl             = failed ? 0 : e->ttl / 60;
-    int ttl_seconds = failed ? 0 : e->ttl; // ebalsa: moving to second accuracy
-
-    Ptr<HostDBInfo> old_r = probe(mutex.get(), md5, false);
-    HostDBInfo old_info;
-    if (old_r)
-      old_info                    = *old_r.get();
-    HostDBRoundRobin *old_rr_data = old_r ? old_r->rr() : nullptr;
-    int valid_records             = 0;
-    void *first_record            = nullptr;
-    uint8_t af                    = e ? e->ent.h_addrtype : AF_UNSPEC; // address family
-    // if this is an RR response, we need to find the first record, as well as the
-    // total number of records
-    if (is_rr) {
-      if (is_srv() && !failed) {
-        valid_records = e->srv_hosts.srv_host_count;
-      } else {
-        void *ptr; // tmp for current entry.
-        for (int total_records = 0;
-             total_records < HOST_DB_MAX_ROUND_ROBIN_INFO && nullptr != (ptr = e->ent.h_addr_list[total_records]);
-             ++total_records) {
-          if (is_addr_valid(af, ptr)) {
-            if (!first_record) {
-              first_record = ptr;
-            }
-            // If we have found some records which are invalid, lets just shuffle around them.
-            // This way we'll end up with e->ent.h_addr_list with all the valid responses at
-            // the first `valid_records` slots
-            if (valid_records != total_records) {
-              e->ent.h_addr_list[valid_records] = e->ent.h_addr_list[total_records];
-            }
-
-            ++valid_records;
-          } else {
-            Warning("Zero address removed from round-robin list for '%s'", md5.host_name);
+      void *ptr; // tmp for current entry.
+      for (int total_records = 0;
+           total_records < HOST_DB_MAX_ROUND_ROBIN_INFO && nullptr != (ptr = e->ent.h_addr_list[total_records]); ++total_records) {
+        if (is_addr_valid(af, ptr)) {
+          if (!first_record) {
+            first_record = ptr;
           }
-        }
-        if (!first_record) {
-          failed = true;
-          is_rr  = false;
+          // If we have found some records which are invalid, lets just shuffle around them.
+          // This way we'll end up with e->ent.h_addr_list with all the valid responses at
+          // the first `valid_records` slots
+          if (valid_records != total_records) {
+            e->ent.h_addr_list[valid_records] = e->ent.h_addr_list[total_records];
+          }
+
+          ++valid_records;
+        } else {
+          Warning("Zero address removed from round-robin list for '%s'", md5.host_name);
         }
       }
-    } else if (!failed) {
-      first_record = e->ent.h_addr_list[0];
-    } // else first is 0.
-
-    IpAddr tip; // temp storage if needed.
-
-    // In the event that the lookup failed (SOA response-- for example) we want to use md5.host_name, since it'll be ""
-    const char *aname = (failed || strlen(md5.host_name)) ? md5.host_name : e->ent.h_name;
-
-    const size_t s_size = strlen(aname) + 1;
-    const size_t rrsize = is_rr ? HostDBRoundRobin::size(valid_records, e->srv_hosts.srv_hosts_length) : 0;
-    // where in our block of memory we are
-    int offset = sizeof(HostDBInfo);
-
-    int allocSize = s_size + rrsize; // The extra space we need for the rest of the things
-
-    Debug("hostdb", "allocating %d bytes for %s with %d RR records", allocSize, aname, valid_records);
-    HostDBInfo *r = HostDBInfo::alloc(allocSize);
-    // set up the record
-    r->key = md5.hash.fold(); // always set the key
-
-    r->hostname_offset = offset;
-    ink_strlcpy(r->perm_hostname(), aname, s_size);
-    offset += s_size;
-
-    // If the DNS lookup failed (errors such as NXDOMAIN, SERVFAIL, etc.) but we have an old record
-    // which is okay with being served stale-- lets continue to serve the stale record as long as
-    // the record is willing to be served.
-    if (failed && old_r && old_r->serve_stale_but_revalidate()) {
-      r = old_r.get();
-    } else if (is_byname()) {
-      if (first_record)
-        ip_addr_set(tip, af, first_record);
-      r = lookup_done(tip, md5.host_name, is_rr, ttl_seconds, failed ? nullptr : &e->srv_hosts, r);
-    } else if (is_srv()) {
-      if (!failed)
-        tip._family = AF_INET;         // force the tip valid, or else the srv will fail
-      r             = lookup_done(tip, /* junk: FIXME: is the code in lookup_done() wrong to NEED this? */
-                      md5.host_name,   /* hostname */
-                      is_rr,           /* is round robin, doesnt matter for SRV since we recheck getCount() inside lookup_done() */
-                      ttl_seconds,     /* ttl in seconds */
-                      failed ? nullptr : &e->srv_hosts, r);
-    } else if (failed) {
-      r = lookup_done(tip, md5.host_name, false, ttl_seconds, nullptr, r);
-    } else {
-      r = lookup_done(md5.ip, e->ent.h_name, false, ttl_seconds, &e->srv_hosts, r);
+      if (!first_record) {
+        // all the addresses are bad.
+        return dnsEventHandleFailure(event);
+      }
     }
+  } else {
+    first_record = e->ent.h_addr_list[0];
+  } // else first is 0.
 
-    // Conditionally make rr record entries
-    if (is_rr) {
-      r->app.rr.offset = offset;
-      // This will only be set if is_rr
-      HostDBRoundRobin *rr_data = (HostDBRoundRobin *)(r->rr());
-      ;
-      if (is_srv()) {
-        int skip  = 0;
-        char *pos = (char *)rr_data + sizeof(HostDBRoundRobin) + valid_records * sizeof(HostDBInfo);
-        SRV *q[HOST_DB_MAX_ROUND_ROBIN_INFO];
-        ink_assert(valid_records <= HOST_DB_MAX_ROUND_ROBIN_INFO);
-        // sort
-        for (int i = 0; i < valid_records; ++i) {
-          q[i] = &e->srv_hosts.hosts[i];
-        }
-        for (int i = 0; i < valid_records; ++i) {
-          for (int ii = i + 1; ii < valid_records; ++ii) {
-            if (*q[ii] < *q[i]) {
-              SRV *tmp = q[i];
-              q[i]     = q[ii];
-              q[ii]    = tmp;
-            }
+  ink_assert(first_record);
+  IpAddr tip; // temp storage if needed.
+
+  // In the event that the lookup failed (SOA response-- for example) we want to use md5.host_name, since it'll be ""
+  const char *aname = strlen(md5.host_name) ? md5.host_name : e->ent.h_name;
+
+  const size_t s_size = strlen(aname) + 1;
+  const size_t rrsize = is_rr ? HostDBRoundRobin::size(valid_records, e->srv_hosts.srv_hosts_length) : 0;
+  // where in our block of memory we are
+  int offset = sizeof(HostDBInfo);
+
+  int allocSize = s_size + rrsize; // The extra space we need for the rest of the things
+
+  Debug("hostdb", "allocating %d bytes for %s with %d RR records", allocSize, aname, valid_records);
+  HostDBInfo *r = HostDBInfo::alloc(allocSize);
+  // set up the record
+  r->key = md5.hash.fold(); // always set the key
+
+  r->hostname_offset = offset;
+  ink_strlcpy(r->perm_hostname(), aname, s_size);
+  offset += s_size;
+
+  if (is_byname()) {
+    ip_addr_set(tip, af, first_record);
+    r = lookup_done(tip, md5.host_name, is_rr, ttl_seconds, &e->srv_hosts, r);
+  } else if (is_srv()) {
+    tip._family = AF_INET;         // force the tip valid, or else the srv will fail
+    r           = lookup_done(tip, /* junk: FIXME: is the code in lookup_done() wrong to NEED this? */
+                    md5.host_name, /* hostname */
+                    is_rr,         /* is round robin, doesnt matter for SRV since we recheck getCount() inside lookup_done() */
+                    ttl_seconds,   /* ttl in seconds */
+                    &e->srv_hosts, r);
+  } else {
+    r = lookup_done(md5.ip, e->ent.h_name, false, ttl_seconds, &e->srv_hosts, r);
+  }
+
+  // Conditionally make rr record entries
+  if (is_rr) {
+    r->app.rr.offset = offset;
+    // This will only be set if is_rr
+    HostDBRoundRobin *rr_data = (HostDBRoundRobin *)(r->rr());
+    ;
+    if (is_srv()) {
+      int skip  = 0;
+      char *pos = (char *)rr_data + sizeof(HostDBRoundRobin) + valid_records * sizeof(HostDBInfo);
+      SRV *q[HOST_DB_MAX_ROUND_ROBIN_INFO];
+      ink_assert(valid_records <= HOST_DB_MAX_ROUND_ROBIN_INFO);
+      // sort
+      for (int i = 0; i < valid_records; ++i) {
+        q[i] = &e->srv_hosts.hosts[i];
+      }
+      for (int i = 0; i < valid_records; ++i) {
+        for (int ii = i + 1; ii < valid_records; ++ii) {
+          if (*q[ii] < *q[i]) {
+            SRV *tmp = q[i];
+            q[i]     = q[ii];
+            q[ii]    = tmp;
           }
         }
+      }
 
-        rr_data->good = rr_data->rrcount = valid_records;
-        rr_data->current                 = 0;
-        for (int i = 0; i < valid_records; ++i) {
-          SRV *t                     = q[i];
-          HostDBInfo &item           = rr_data->info(i);
-          item.round_robin           = 0;
-          item.round_robin_elt       = 1;
-          item.reverse_dns           = 0;
-          item.is_srv                = 1;
-          item.data.srv.srv_weight   = t->weight;
-          item.data.srv.srv_priority = t->priority;
-          item.data.srv.srv_port     = t->port;
-          item.data.srv.key          = t->key;
+      rr_data->good = rr_data->rrcount = valid_records;
+      rr_data->current                 = 0;
+      for (int i = 0; i < valid_records; ++i) {
+        SRV *t                     = q[i];
+        HostDBInfo &item           = rr_data->info(i);
+        item.round_robin           = 0;
+        item.round_robin_elt       = 1;
+        item.reverse_dns           = 0;
+        item.is_srv                = 1;
+        item.data.srv.srv_weight   = t->weight;
+        item.data.srv.srv_priority = t->priority;
+        item.data.srv.srv_port     = t->port;
+        item.data.srv.key          = t->key;
 
-          ink_assert((skip + t->host_len) <= e->srv_hosts.srv_hosts_length);
+        ink_assert((skip + t->host_len) <= e->srv_hosts.srv_hosts_length);
 
-          memcpy(pos + skip, t->host, t->host_len);
-          item.data.srv.srv_offset = (pos - (char *)rr_data) + skip;
+        memcpy(pos + skip, t->host, t->host_len);
+        item.data.srv.srv_offset = (pos - (char *)rr_data) + skip;
 
-          skip += t->host_len;
+        skip += t->host_len;
 
-          item.app.allotment.application1 = 0;
-          item.app.allotment.application2 = 0;
-          Debug("dns_srv", "inserted SRV RR record [%s] into HostDB with TTL: %d seconds", t->host, ttl_seconds);
-        }
+        item.app.allotment.application1 = 0;
+        item.app.allotment.application2 = 0;
+        Debug("dns_srv", "inserted SRV RR record [%s] into HostDB with TTL: %d seconds", t->host, ttl_seconds);
+      }
 
-        // restore
-        if (old_rr_data) {
-          for (int i = 0; i < rr_data->rrcount; ++i) {
-            for (int ii = 0; ii < old_rr_data->rrcount; ++ii) {
-              if (rr_data->info(i).data.srv.key == old_rr_data->info(ii).data.srv.key) {
-                char *new_host = rr_data->info(i).srvname(rr_data);
-                char *old_host = old_rr_data->info(ii).srvname(old_rr_data);
-                if (!strcmp(new_host, old_host))
-                  rr_data->info(i).app = old_rr_data->info(ii).app;
+      // restore
+      if (old_rr_data) {
+        for (int i = 0; i < rr_data->rrcount; ++i) {
+          for (int ii = 0; ii < old_rr_data->rrcount; ++ii) {
+            if (rr_data->info(i).data.srv.key == old_rr_data->info(ii).data.srv.key) {
+              char *new_host = rr_data->info(i).srvname(rr_data);
+              char *old_host = old_rr_data->info(ii).srvname(old_rr_data);
+              if (!strcmp(new_host, old_host)) {
+                rr_data->info(i).app = old_rr_data->info(ii).app;
               }
             }
           }
         }
-      } else { // Otherwise this is a regular dns response
-        rr_data->good = rr_data->rrcount = valid_records;
-        rr_data->current                 = 0;
-        for (int i = 0; i < valid_records; ++i) {
-          HostDBInfo &item = rr_data->info(i);
-          ip_addr_set(item.ip(), af, e->ent.h_addr_list[i]);
-          item.round_robin     = 0;
-          item.round_robin_elt = 1;
-          item.reverse_dns     = 0;
-          item.is_srv          = 0;
-          if (!restore_info(&item, old_r.get(), old_info, old_rr_data)) {
-            item.app.allotment.application1 = 0;
-            item.app.allotment.application2 = 0;
-          }
+      }
+    } else { // Otherwise this is a regular dns response
+      rr_data->good = rr_data->rrcount = valid_records;
+      rr_data->current                 = 0;
+      for (int i = 0; i < valid_records; ++i) {
+        HostDBInfo &item = rr_data->info(i);
+        ip_addr_set(item.ip(), af, e->ent.h_addr_list[i]);
+        item.round_robin     = 0;
+        item.round_robin_elt = 1;
+        item.reverse_dns     = 0;
+        item.is_srv          = 0;
+        if (!restore_info(&item, old_r.get(), old_info, old_rr_data)) {
+          item.app.allotment.application1 = 0;
+          item.app.allotment.application2 = 0;
         }
       }
     }
-
-    if (!failed && !is_rr && !is_srv())
-      restore_info(r, old_r.get(), old_info, old_rr_data);
-    ink_assert(!r || !r->round_robin || !r->reverse_dns);
-    ink_assert(failed || !r->round_robin || r->app.rr.offset);
-
-    hostDB.refcountcache->put(md5.hash.fold(), r, allocSize, r->expiry_time());
-
-    // if we are not the owner, put on the owner
-    //
-    ClusterMachine *m = cluster_machine_at_depth(master_hash(md5.hash));
-
-    if (m)
-      do_put_response(m, r, nullptr);
-
-    // try to callback the user
-    //
-    if (action.continuation) {
-      // Check for IP family failover
-      if (failed && check_for_retry(md5.db_mark, host_res_style)) {
-        this->refresh_MD5(); // family changed if we're doing a retry.
-        SET_CONTINUATION_HANDLER(this, (HostDBContHandler)&HostDBContinuation::probeEvent);
-        thread->schedule_in(this, MUTEX_RETRY_DELAY);
-        return EVENT_CONT;
-      }
-
-      MUTEX_TRY_LOCK_FOR(lock, action.mutex, thread, action.continuation);
-      if (!lock.is_locked()) {
-        remove_trigger_pending_dns();
-        SET_HANDLER((HostDBContHandler)&HostDBContinuation::probeEvent);
-        thread->schedule_in(this, HOST_DB_RETRY_PERIOD);
-        return EVENT_CONT;
-      }
-      if (!action.cancelled)
-        reply_to_cont(action.continuation, r, is_srv());
-    }
-    // wake up everyone else who is waiting
-    remove_trigger_pending_dns();
-
-    // all done
-    //
-    hostdb_cont_free(this);
-    return EVENT_DONE;
   }
+
+  if (!is_rr && !is_srv()) {
+    restore_info(r, old_r.get(), old_info, old_rr_data);
+  }
+  ink_assert(!r || !r->round_robin || !r->reverse_dns);
+  ink_assert(!r->round_robin || r->app.rr.offset);
+
+  hostDB.refcountcache->put(md5.hash.fold(), r, allocSize, r->expiry_time());
+
+  // try to callback the user
+  //
+  if (action.continuation) {
+    MUTEX_TRY_LOCK_FOR(lock, action.mutex, thread, action.continuation);
+    if (!lock.is_locked()) {
+      remove_trigger_pending_dns();
+      SET_HANDLER((HostDBContHandler)&HostDBContinuation::probeEvent);
+      thread->schedule_in(this, HOST_DB_RETRY_PERIOD);
+      return EVENT_CONT;
+    }
+    if (!action.cancelled) {
+      reply_to_cont(action.continuation, r, is_srv());
+    }
+  }
+  // wake up everyone else who is waiting
+  remove_trigger_pending_dns();
+
+  // all done
+  //
+  hostdb_cont_free(this);
+  return EVENT_DONE;
+}
+
+int
+HostDBContinuation::dnsEventHandleFailure(int event)
+{
+  pending_action = nullptr;
+
+  ttl = 0;
+
+  Ptr<HostDBInfo> old_r = probe(mutex.get(), md5, false);
+  HostDBInfo *r         = nullptr;
+
+  ink_assert(strlen(md5.host_name) > 0);
+
+  // If the DNS lookup failed (errors such as NXDOMAIN, SERVFAIL, etc.) but we have an old record
+  // which is okay with being served stale-- lets continue to serve the stale record as long as
+  // the record is willing to be served.
+  if (old_r && old_r->serve_stale_but_revalidate()) {
+    r = old_r.get();
+  } else {
+    IpAddr tip; // temp storage if needed.
+    r = lookup_done(tip, md5.host_name, false, 0, nullptr, r);
+  }
+
+  const size_t s_size = strlen(md5.host_name) + 1;
+  hostDB.refcountcache->put(md5.hash.fold(), r, s_size, r->expiry_time());
+
+  EThread *thread = mutex->thread_holding;
+  // try to callback the user
+  //
+  if (action.continuation) {
+    // Check for IP family failover
+    if (check_for_retry(md5.db_mark, host_res_style)) {
+      this->refresh_MD5(); // family changed if we're doing a retry.
+      SET_CONTINUATION_HANDLER(this, (HostDBContHandler)&HostDBContinuation::probeEvent);
+      thread->schedule_in(this, MUTEX_RETRY_DELAY);
+      return EVENT_CONT;
+    }
+
+    MUTEX_TRY_LOCK_FOR(lock, action.mutex, thread, action.continuation);
+    if (!lock.is_locked()) {
+      remove_trigger_pending_dns();
+      SET_HANDLER((HostDBContHandler)&HostDBContinuation::probeEvent);
+      thread->schedule_in(this, HOST_DB_RETRY_PERIOD);
+      return EVENT_CONT;
+    }
+    if (!action.cancelled) {
+      reply_to_cont(action.continuation, r, is_srv());
+    }
+  }
+  // wake up everyone else who is waiting
+  remove_trigger_pending_dns();
+
+  // all done
+  //
+  hostdb_cont_free(this);
+  return EVENT_DONE;
 }
 
 //
