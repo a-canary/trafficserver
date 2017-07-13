@@ -3020,6 +3020,14 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
     close_connection = false;
   } else {
     close_connection = true;
+    if (t_state.current.server->keep_alive != HTTP_KEEPALIVE)
+      profile_counter("tnl-hdl-a");
+    if (server_entry->eos)
+      profile_counter("tnl-hdl-b");
+    if (plugin_tunnel_type != HTTP_NO_PLUGIN_TUNNEL)
+      profile_counter("tnl-hdl-c");
+    if (t_state.txn_conf->keep_alive_enabled_out != 1)
+      profile_counter("tnl-hdl-d");
   }
 
   switch (event) {
@@ -3047,6 +3055,7 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
       break;
     }
 
+    profile_counter("tnl-evt-inact");
     close_connection = true;
 
     ink_assert(p->vc_type == HT_HTTP_SERVER);
@@ -3116,6 +3125,7 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
     t_state.current.server->state = HttpTransact::TRANSACTION_COMPLETE;
     t_state.current.server->abort = HttpTransact::DIDNOT_ABORT;
     close_connection              = true;
+    profile_counter("tnl-evt-detch");
     break;
 
   case VC_EVENT_READ_READY:
