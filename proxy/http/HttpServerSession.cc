@@ -143,6 +143,7 @@ HttpServerSession::do_io_close(int alerrno)
   }
 
   if (server_vc) {
+    profile_counter("srv_vc close");
     server_vc->do_io_close(alerrno);
   }
   server_vc = nullptr;
@@ -166,6 +167,9 @@ HttpServerSession::reenable(VIO *vio)
 void
 HttpServerSession::release()
 {
+  profile_counter("release");
+  ink_assert(server_vc == nullptr);
+
   Debug("http_ss", "Releasing session, private_session=%d, sharing_match=%d", private_session, sharing_match);
   // Set our state to KA for stat issues
   state = HSS_KA_SHARED;

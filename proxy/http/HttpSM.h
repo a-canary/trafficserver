@@ -668,4 +668,16 @@ HttpSM::is_transparent_passthrough_allowed()
           ua_session->get_transact_count() == 1);
 }
 
+#define profile_counter(label_str)                                \
+  do {                                                            \
+    static uint *counter_ptr = Profile_Counter::alloc(label_str); \
+    ink_atomic_increment(counter_ptr, 1);                         \
+  } while (0);
+
+namespace Profile_Counter
+{
+uint *alloc(const char *name);
+void print();
+}
+
 #endif

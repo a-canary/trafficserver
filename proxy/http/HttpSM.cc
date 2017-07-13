@@ -3145,6 +3145,7 @@ HttpSM::tunnel_handler_server(int event, HttpTunnelProducer *p)
 
   if (close_connection) {
     p->vc->do_io_close();
+    profile_counter("tnl-nul-a");
     server_session = nullptr; // Because p->vc == server_session
     p->read_vio    = nullptr;
     /* TS-1424: if we're outbound transparent and using the client
@@ -5371,7 +5372,10 @@ HttpSM::mark_server_down_on_client_abort()
 void
 HttpSM::release_server_session(bool serve_from_cache)
 {
+  profile_counter("sm-release");
+
   if (server_session == nullptr) {
+    profile_counter("sm-rel-null");
     return;
   }
 
@@ -5382,6 +5386,7 @@ HttpSM::release_server_session(bool serve_from_cache)
                                                    t_state.www_auth_content != HttpTransact::CACHE_AUTH_NONE)) &&
       plugin_tunnel_type == HTTP_NO_PLUGIN_TUNNEL) {
     HTTP_DECREMENT_DYN_STAT(http_current_server_transactions_stat);
+    profile_counter("sm-rel-share");
     server_session->server_trans_stat--;
     server_session->attach_hostname(t_state.current.server->name);
     if (t_state.www_auth_content == HttpTransact::CACHE_AUTH_NONE || serve_from_cache == false) {
@@ -5389,12 +5394,14 @@ HttpSM::release_server_session(bool serve_from_cache)
       server_session->get_netvc()->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->keep_alive_no_activity_timeout_out));
       server_session->release();
     } else {
+      profile_counter("sm-rel-auth");
       // an authenticated server connection - attach to the local client
       // we are serving from cache for the current transaction
       t_state.www_auth_content = HttpTransact::CACHE_AUTH_SERVE;
       ua_session->attach_server_session(server_session, false);
     }
   } else {
+    profile_counter("sm-rel-close");
     server_session->do_io_close();
   }
 
@@ -5402,7 +5409,8 @@ HttpSM::release_server_session(bool serve_from_cache)
   server_entry->in_tunnel = true;
   vc_table.cleanup_entry(server_entry);
   server_entry   = nullptr;
-  server_session = nullptr;
+  server_session = nullptr; // same1
+  profile_counter("tnl-nul-b");
 }
 
 // void HttpSM::handle_post_failure()
@@ -5951,7 +5959,7 @@ HttpSM::attach_server_session(HttpServerSession *s)
   hsm_release_assert(server_session == nullptr);
   hsm_release_assert(server_entry == nullptr);
   hsm_release_assert(s->state == HSS_ACTIVE);
-  server_session        = s;
+  server_session        = s; // same2
   server_transact_count = server_session->transact_count++;
   // Propagate the per client IP debugging
   if (ua_session) {
@@ -6917,7 +6925,8 @@ HttpSM::kill_this()
       plugin_tunnel = nullptr;
     }
 
-    server_session = nullptr;
+    server_session = nullptr; // same3
+    profile_counter("sm-kill");
 
     // So we don't try to nuke the state machine
     //  if the plugin receives event we must reset
@@ -7411,10 +7420,7 @@ HttpSM::set_next_state()
     // We need to close the previous attempt
     // Because it could be a server side retry by DNS rr
     if (server_entry) {
-      ink_assert(server_entry->vc_type == HTTP_SERVER_VC);
-      vc_table.cleanup_entry(server_entry);
-      server_entry   = nullptr;
-      server_session = nullptr;
+      release_server_session();
     } else {
       // Now that we have gotten the user agent request, we can cancel
       // the inactivity timeout associated with it.  Note, however, that
@@ -7463,10 +7469,7 @@ HttpSM::set_next_state()
 
     // We need to close the previous attempt
     if (server_entry) {
-      ink_assert(server_entry->vc_type == HTTP_SERVER_VC);
-      vc_table.cleanup_entry(server_entry);
-      server_entry   = nullptr;
-      server_session = nullptr;
+      release_server_session();
     } else {
       // Now that we have gotten the user agent request, we can cancel
       // the inactivity timeout associated with it.  Note, however, that
@@ -8173,4 +8176,45 @@ HttpSM::find_proto_string(HTTPVersion version) const
     return IP_PROTO_TAG_HTTP_1_0;
   }
   return nullptr;
+}
+
+namespace Profile_Counter
+{
+namespace detail
+{
+  static const int N = 32;
+  static uint usages[N];
+  static const char *names[N];
+  static time_t print_time = 0;
+  static int count         = 0;
+}
+
+uint *
+alloc(const char *name)
+{
+  using namespace detail;
+  int idx = ink_atomic_increment(&count, 1);
+  ink_release_assert(count <= N);
+  usages[idx] = 0;
+  names[idx]  = name;
+  return usages + idx;
+}
+
+void
+print()
+{
+  using namespace detail;
+  const time_t t = time(nullptr);
+  if (print_time > t) {
+    return;
+  }
+  print_time = t + 30;
+  char buf[3000];
+  int buf_len = 0;
+  for (int i = 0; i < count; i++) {
+    buf_len += snprintf(buf + buf_len, 3000 - buf_len, " %s,%u,", names[i], usages[i]);
+    ink_atomic_swap(usages + i, 0U);
+  }
+  Warning("Profile_Counter: %s", buf);
+}
 }

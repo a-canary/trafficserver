@@ -59,6 +59,7 @@ ServerSessionPool::purge()
   // Therefore @c do_io_close is called on a post-incremented iterator.
   for (IPHashTable::iterator last = m_ip_pool.end(), spot = m_ip_pool.begin(); spot != last; spot++->do_io_close()) {
   }
+  profile_counter("sp-purge");
   m_ip_pool.clear();
   m_host_pool.clear();
 }
@@ -110,6 +111,9 @@ ServerSessionPool::acquireSession(sockaddr const *addr, INK_MD5 const &hostname_
       to_return = loc;
       m_host_pool.remove(loc);
       m_ip_pool.remove(m_ip_pool.find(loc));
+      profile_counter("sp-acq");
+    } else {
+      profile_counter("sp-miss");
     }
   } else if (TS_SERVER_SESSION_SHARING_MATCH_NONE != match_style) { // matching is not disabled.
     IPHashTable::Location loc = m_ip_pool.find(addr);
@@ -128,14 +132,19 @@ ServerSessionPool::acquireSession(sockaddr const *addr, INK_MD5 const &hostname_
       to_return = loc;
       m_ip_pool.remove(loc);
       m_host_pool.remove(m_host_pool.find(loc));
+      profile_counter("sp-acq");
+    } else {
+      profile_counter("sp-miss");
     }
   }
+
   return zret;
 }
 
 void
 ServerSessionPool::releaseSession(HttpServerSession *ss)
 {
+  profile_counter("sp-release");
   ss->state = HSS_KA_SHARED;
   // Now we need to issue a read on the connection to detect
   //  if it closes on us.  We will get called back in the
@@ -216,8 +225,11 @@ ServerSessionPool::eventHandler(int event, void *data)
             HttpDebugNames::get_event_name(event));
       ink_assert(s->state == HSS_KA_SHARED);
       // Out of the pool! Now!
+      // IS THIS THREAD SAFE????
       m_ip_pool.remove(lh);
       m_host_pool.remove(m_host_pool.find(s));
+      profile_counter("sp-event");
+
       // Drop connection on this end.
       s->do_io_close();
       found = true;
@@ -255,8 +267,8 @@ HttpSessionManager::purge_keepalives()
 {
   EThread *ethread = this_ethread();
 
-  MUTEX_TRY_LOCK(lock, m_g_pool->mutex, ethread);
-  if (lock.is_locked()) {
+  SCOPED_MUTEX_LOCK(lock, m_g_pool->mutex, ethread);
+  if (1) {
     m_g_pool->purge();
   } // should we do something clever if we don't get the lock?
 }
@@ -265,6 +277,9 @@ HSMresult_t
 HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockaddr const *ip, const char *hostname,
                                     ProxyClientTransaction *ua_session, HttpSM *sm)
 {
+  profile_counter("acquire_session");
+  Profile_Counter::print();
+
   HttpServerSession *to_return = nullptr;
   TSServerSessionSharingMatchType match_style =
     static_cast<TSServerSessionSharingMatchType>(sm->t_state.txn_conf->server_session_sharing_match);
@@ -283,11 +298,14 @@ HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockad
     // Will the client make requests to different hosts over the same SSL session? Though checking
     // the IP/hostname here seems a bit redundant too
     //
+
     if (ServerSessionPool::match(to_return, ip, hostname_hash, match_style) &&
         ServerSessionPool::validate_sni(sm, to_return->get_netvc())) {
       Debug("http_ss", "[%" PRId64 "] [acquire session] returning attached session ", to_return->con_id);
       to_return->state = HSS_ACTIVE;
       sm->attach_server_session(to_return);
+
+      profile_counter("reuse ua match");
       return HSM_DONE;
     }
     // Release this session back to the main session pool and
@@ -297,6 +315,8 @@ HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockad
           to_return->con_id);
     to_return->release();
     to_return = nullptr;
+
+    profile_counter("reuse ua miss");
   }
 
   // TS-3797 Adding another scope so the pool lock is dropped after it is removed from the pool and
@@ -311,28 +331,32 @@ HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockad
     ProxyMutex *pool_mutex = (TS_SERVER_SESSION_SHARING_POOL_THREAD == sm->t_state.http_config_param->server_session_sharing_pool) ?
                                ethread->server_session_pool->mutex.get() :
                                m_g_pool->mutex.get();
-    MUTEX_TRY_LOCK(lock, pool_mutex, ethread);
-    if (lock.is_locked()) {
+    SCOPED_MUTEX_LOCK(lock, pool_mutex, ethread);
+    if (1) {
       if (TS_SERVER_SESSION_SHARING_POOL_THREAD == sm->t_state.http_config_param->server_session_sharing_pool) {
+        profile_counter("ck thrd pool");
         retval = ethread->server_session_pool->acquireSession(ip, hostname_hash, match_style, sm, to_return);
         Debug("http_ss", "[acquire session] thread pool search %s", to_return ? "successful" : "failed");
       } else {
+        profile_counter("ck gp");
         retval = m_g_pool->acquireSession(ip, hostname_hash, match_style, sm, to_return);
         Debug("http_ss", "[acquire session] global pool search %s", to_return ? "successful" : "failed");
         // At this point to_return has been removed from the pool. Do we need to move it
         // to the same thread?
         if (to_return) {
+          profile_counter("gp acq");
           UnixNetVConnection *server_vc = dynamic_cast<UnixNetVConnection *>(to_return->get_netvc());
           if (server_vc) {
             UnixNetVConnection *new_vc = server_vc->migrateToCurrentThread(sm, ethread);
             // The VC moved, free up the original one
             if (new_vc != server_vc) {
-              ink_assert(new_vc == nullptr || new_vc->nh != nullptr);
+              ink_release_assert(new_vc == nullptr || new_vc->nh != nullptr);
               if (!new_vc) {
                 // Close out to_return, we were't able to get a connection
                 to_return->do_io_close();
                 to_return = nullptr;
                 retval    = HSM_NOT_FOUND;
+                profile_counter("!new_vc");
               } else {
                 // Keep things from timing out on us
                 new_vc->set_inactivity_timeout(new_vc->get_inactivity_timeout());
@@ -351,6 +375,7 @@ HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockad
   }
 
   if (to_return) {
+    profile_counter("gp acq rtn");
     Debug("http_ss", "[%" PRId64 "] [acquire session] return session from shared pool", to_return->con_id);
     to_return->state = HSS_ACTIVE;
     // the attach_server_session will issue the do_io_read under the sm lock
@@ -369,8 +394,8 @@ HttpSessionManager::release_session(HttpServerSession *to_release)
   bool released_p = true;
 
   // The per thread lock looks like it should not be needed but if it's not locked the close checking I/O op will crash.
-  MUTEX_TRY_LOCK(lock, pool->mutex, ethread);
-  if (lock.is_locked()) {
+  SCOPED_MUTEX_LOCK(lock, pool->mutex, ethread);
+  if (1) {
     pool->releaseSession(to_release);
   } else {
     Debug("http_ss", "[%" PRId64 "] [release session] could not release session due to lock contention", to_release->con_id);
