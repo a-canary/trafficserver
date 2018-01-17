@@ -27,6 +27,7 @@
 #include "ts/ink_sock.h"
 #include "ts/ink_args.h"
 #include "ts/ink_syslog.h"
+#include "ts/runroot.h"
 
 #include "WebMgmtUtils.h"
 #include "MgmtUtils.h"
@@ -50,18 +51,20 @@
 
 #include "P_RecLocal.h"
 
-#include "bindings/bindings.h"
-#include "bindings/metrics.h"
-
 #include "metrics.h"
 
 #if TS_USE_POSIX_CAP
 #include <sys/capability.h>
 #endif
 #include <grp.h>
+#include <atomic>
 
 #define FD_THROTTLE_HEADROOM (128 + 64) // TODO: consolidate with THROTTLE_FD_HEADROOM
 #define DIAGS_LOG_FILENAME "manager.log"
+
+#if ATOMIC_INT_LOCK_FREE != 2
+#error "Need lock free std::atomic<int>"
+#endif
 
 // These globals are still referenced directly by management API.
 LocalManager *lmgmt = nullptr;
@@ -102,7 +105,7 @@ static void SignalHandler(int sig);
 static void SignalAlrmHandler(int sig);
 #endif
 
-static volatile int sigHupNotifier = 0;
+static std::atomic<int> sigHupNotifier;
 static void SigChldHandler(int sig);
 
 static void
@@ -166,7 +169,7 @@ is_server_idle()
 static void
 check_lockfile()
 {
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
+  std::string rundir(RecConfigReadRuntimeDir());
   char lockfile[PATH_NAME_MAX];
   int err;
   pid_t holding_pid;
@@ -302,17 +305,17 @@ initSignalHandlers()
 static void
 init_dirs()
 {
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
-  ats_scoped_str sysconfdir(RecConfigReadConfigDir());
+  std::string rundir(RecConfigReadRuntimeDir());
+  std::string sysconfdir(RecConfigReadConfigDir());
 
-  if (access(sysconfdir, R_OK) == -1) {
-    mgmt_elog(0, "unable to access() config directory '%s': %d, %s\n", (const char *)sysconfdir, errno, strerror(errno));
+  if (access(sysconfdir.c_str(), R_OK) == -1) {
+    mgmt_elog(0, "unable to access() config directory '%s': %d, %s\n", sysconfdir.c_str(), errno, strerror(errno));
     mgmt_elog(0, "please set the 'TS_ROOT' environment variable\n");
     ::exit(1);
   }
 
-  if (access(rundir, R_OK) == -1) {
-    mgmt_elog(0, "unable to access() local state directory '%s': %d, %s\n", (const char *)rundir, errno, strerror(errno));
+  if (access(rundir.c_str(), R_OK) == -1) {
+    mgmt_elog(0, "unable to access() local state directory '%s': %d, %s\n", rundir.c_str(), errno, strerror(errno));
     mgmt_elog(0, "please set 'proxy.config.local_state_dir'\n");
     ::exit(1);
   }
@@ -321,14 +324,14 @@ init_dirs()
 static void
 chdir_root()
 {
-  const char *prefix = Layout::get()->prefix;
+  std::string prefix = Layout::get()->prefix;
 
-  if (chdir(prefix) < 0) {
-    mgmt_elog(0, "unable to change to root directory \"%s\" [%d '%s']\n", prefix, errno, strerror(errno));
+  if (chdir(prefix.c_str()) < 0) {
+    mgmt_elog(0, "unable to change to root directory \"%s\" [%d '%s']\n", prefix.c_str(), errno, strerror(errno));
     mgmt_elog(0, " please set correct path in env variable TS_ROOT \n");
     exit(1);
   } else {
-    mgmt_log("[TrafficManager] using root directory '%s'\n", prefix);
+    mgmt_log("[TrafficManager] using root directory '%s'\n", prefix.c_str());
   }
 }
 
@@ -339,12 +342,12 @@ set_process_limits(RecInt fds_throttle)
   rlim_t maxfiles;
 
   // Set needed rlimits (root)
-  ink_max_out_rlimit(RLIMIT_NOFILE, true, false);
-  ink_max_out_rlimit(RLIMIT_STACK, true, true);
-  ink_max_out_rlimit(RLIMIT_DATA, true, true);
-  ink_max_out_rlimit(RLIMIT_FSIZE, true, false);
+  ink_max_out_rlimit(RLIMIT_NOFILE);
+  ink_max_out_rlimit(RLIMIT_STACK);
+  ink_max_out_rlimit(RLIMIT_DATA);
+  ink_max_out_rlimit(RLIMIT_FSIZE);
 #ifdef RLIMIT_RSS
-  ink_max_out_rlimit(RLIMIT_RSS, true, true);
+  ink_max_out_rlimit(RLIMIT_RSS);
 #endif
 
   maxfiles = ink_get_max_files();
@@ -419,9 +422,11 @@ main(int argc, const char **argv)
 {
   const long MAX_LOGIN = ink_login_name_max();
 
+  runroot_handler(argv);
+
   // Before accessing file system initialize Layout engine
   Layout::create();
-  mgmt_path = Layout::get()->sysconfdir;
+  mgmt_path = Layout::get()->sysconfdir.c_str();
 
   // Set up the application version info
   appVersionInfo.setup(PACKAGE_NAME, "traffic_manager", PACKAGE_VERSION, __DATE__, __TIME__, BUILD_MACHINE, BUILD_PERSON, "");
@@ -457,7 +462,8 @@ main(int argc, const char **argv)
 #endif
     {"nosyslog", '-', "Do not log to syslog", "F", &disable_syslog, nullptr, nullptr},
     HELP_ARGUMENT_DESCRIPTION(),
-    VERSION_ARGUMENT_DESCRIPTION()
+    VERSION_ARGUMENT_DESCRIPTION(),
+    RUNROOT_ARGUMENT_DESCRIPTION()
   };
 
   // Process command line arguments and dump into variables
@@ -491,8 +497,8 @@ main(int argc, const char **argv)
   //  up the manager
   diagsConfig = new DiagsConfig("Manager", DIAGS_LOG_FILENAME, debug_tags, action_tags, false);
   diags       = diagsConfig->diags;
-  diags->set_stdout_output(bind_stdout);
-  diags->set_stderr_output(bind_stderr);
+  diags->set_std_output(StdStream::STDOUT, bind_stdout);
+  diags->set_std_output(StdStream::STDERR, bind_stderr);
 
   RecLocalInit();
   LibRecordsConfigInit();
@@ -537,8 +543,8 @@ main(int argc, const char **argv)
   diagsConfig = new DiagsConfig("Manager", DIAGS_LOG_FILENAME, debug_tags, action_tags, true);
   diags       = diagsConfig->diags;
   RecSetDiags(diags);
-  diags->set_stdout_output(bind_stdout);
-  diags->set_stderr_output(bind_stderr);
+  diags->set_std_output(StdStream::STDOUT, bind_stdout);
+  diags->set_std_output(StdStream::STDERR, bind_stderr);
 
   if (is_debug_tag_set("diags")) {
     diags->dump();
@@ -636,13 +642,13 @@ main(int argc, const char **argv)
   // can keep a consistent euid when create mgmtapi/eventapi unix
   // sockets in mgmt_synthetic_main thread.
   //
-  synthThrId = ink_thread_create(mgmt_synthetic_main, nullptr, 0, 0, nullptr); /* Spin web agent thread */
+  ink_thread_create(&synthThrId, mgmt_synthetic_main, nullptr, 0, 0, nullptr); /* Spin web agent thread */
   Debug("lm", "Created Web Agent thread (%" PRId64 ")", (int64_t)synthThrId);
 
   // Setup the API and event sockets
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
-  ats_scoped_str apisock(Layout::relative_to(rundir, MGMTAPI_MGMT_SOCKET_NAME));
-  ats_scoped_str eventsock(Layout::relative_to(rundir, MGMTAPI_EVENT_SOCKET_NAME));
+  std::string rundir(RecConfigReadRuntimeDir());
+  std::string apisock(Layout::relative_to(rundir, MGMTAPI_MGMT_SOCKET_NAME));
+  std::string eventsock(Layout::relative_to(rundir, MGMTAPI_EVENT_SOCKET_NAME));
 
   mode_t oldmask = umask(0);
   mode_t newmode = api_socket_is_restricted() ? 00700 : 00777;
@@ -651,22 +657,21 @@ main(int argc, const char **argv)
   int eventapiFD        = -1; // FD for the api and clients to handle event callbacks
   char mgmtapiFailMsg[] = "Traffic server management API service Interface Failed to Initialize.";
 
-  mgmtapiFD = bind_unix_domain_socket(apisock, newmode);
+  mgmtapiFD = bind_unix_domain_socket(apisock.c_str(), newmode);
   if (mgmtapiFD == -1) {
-    mgmt_log("[WebIntrMain] Unable to set up socket for handling management API calls. API socket path = %s\n",
-             (const char *)apisock);
+    mgmt_log("[WebIntrMain] Unable to set up socket for handling management API calls. API socket path = %s\n", apisock.c_str());
     lmgmt->alarm_keeper->signalAlarm(MGMT_ALARM_WEB_ERROR, mgmtapiFailMsg);
   }
 
-  eventapiFD = bind_unix_domain_socket(eventsock, newmode);
+  eventapiFD = bind_unix_domain_socket(eventsock.c_str(), newmode);
   if (eventapiFD == -1) {
     mgmt_log("[WebIntrMain] Unable to set up so for handling management API event calls. Event Socket path: %s\n",
-             (const char *)eventsock);
+             eventsock.c_str());
   }
 
   umask(oldmask);
-  ink_thread_create(ts_ctrl_main, &mgmtapiFD, 0, 0, nullptr);
-  ink_thread_create(event_callback_main, &eventapiFD, 0, 0, nullptr);
+  ink_thread_create(nullptr, ts_ctrl_main, &mgmtapiFD, 0, 0, nullptr);
+  ink_thread_create(nullptr, event_callback_main, &eventapiFD, 0, 0, nullptr);
 
   mgmt_log("[TrafficManager] Setup complete\n");
 
@@ -679,8 +684,11 @@ main(int argc, const char **argv)
 
   binding = new BindingInstance;
   metrics_binding_initialize(*binding);
+  metrics_binding_configure(*binding);
 
-  int sleep_time = 0; // sleep_time given in sec
+  const int MAX_SLEEP_S      = 60; // Max sleep duration
+  int sleep_time             = 0;  // sleep_time given in sec
+  uint64_t last_start_epoc_s = 0;  // latest start attempt in seconds since epoc
 
   for (;;) {
     lmgmt->processEventQueue();
@@ -692,6 +700,8 @@ main(int argc, const char **argv)
 
       binding = new BindingInstance;
       metrics_binding_initialize(*binding);
+      metrics_binding_configure(*binding);
+
       binding_version = metrics_version;
     }
 
@@ -699,7 +709,7 @@ main(int argc, const char **argv)
     rotateLogs();
 
     // Check for a SIGHUP
-    if (sigHupNotifier != 0) {
+    if (sigHupNotifier) {
       mgmt_log("[main] Reading Configuration Files due to SIGHUP\n");
       Reconfigure();
       sigHupNotifier = 0;
@@ -737,16 +747,17 @@ main(int argc, const char **argv)
     }
 
     if (lmgmt->run_proxy && !lmgmt->processRunning() && lmgmt->proxy_recoverable) { /* Make sure we still have a proxy up */
-      if (sleep_time) {
+      const uint64_t now = static_cast<uint64_t>(time(nullptr));
+      if (sleep_time && ((now - last_start_epoc_s) < MAX_SLEEP_S)) {
         mgmt_log("Relaunching proxy after %d sec...", sleep_time);
         millisleep(1000 * sleep_time); // we use millisleep instead of sleep because it doesnt interfere with signals
-        sleep_time = (sleep_time > 30) ? 60 : sleep_time * 2;
+        sleep_time = std::min(sleep_time * 2, MAX_SLEEP_S);
       } else {
         sleep_time = 1;
       }
       if (ProxyStateSet(TS_PROXY_ON, TS_CACHE_CLEAR_NONE) == TS_ERR_OKAY) {
-        just_started = 0;
-        sleep_time   = 0;
+        just_started      = 0;
+        last_start_epoc_s = static_cast<uint64_t>(time(nullptr));
       } else {
         just_started++;
       }
@@ -949,6 +960,10 @@ fileUpdated(char *fname, bool incVersion)
     mgmt_log("[fileUpdated] metrics.config file has been modified\n");
   } else if (strcmp(fname, "congestion.config") == 0) {
     lmgmt->signalFileChange("proxy.config.http.congestion_control.filename");
+  } else if (strcmp(fname, "proxy.config.ssl.server.ticket_key.filename") == 0) {
+    lmgmt->signalFileChange("proxy.config.ssl.server.ticket_key.filename");
+  } else if (strcmp(fname, SSL_SERVER_NAME_CONFIG) == 0) {
+    lmgmt->signalFileChange("proxy.config.ssl.servername.filename");
   } else {
     mgmt_log("[fileUpdated] Unknown config file updated '%s'\n", fname);
   }

@@ -1220,6 +1220,9 @@ tsapi void TSHttpHookAdd(TSHttpHookID id, TSCont contp);
 tsapi void TSHttpSsnHookAdd(TSHttpSsn ssnp, TSHttpHookID id, TSCont contp);
 tsapi void TSHttpSsnReenable(TSHttpSsn ssnp, TSEvent event);
 tsapi int TSHttpSsnTransactionCount(TSHttpSsn ssnp);
+// get TSVConn from session
+tsapi TSVConn TSHttpSsnClientVConnGet(TSHttpSsn ssnp);
+tsapi TSVConn TSHttpSsnServerVConnGet(TSHttpSsn ssnp);
 
 /* --------------------------------------------------------------------------
    SSL connections */
@@ -1236,6 +1239,7 @@ tsapi TSSslContext TSSslContextFindByAddr(struct sockaddr const *);
 // Create a new SSL context based on the settings in records.config
 tsapi TSSslContext TSSslServerContextCreate(void);
 tsapi void TSSslContextDestroy(TSSslContext ctx);
+tsapi void TSSslTicketKeyUpdate(char *ticketData, int ticketDataLen);
 tsapi TSNextProtocolSet TSUnregisterProtocol(TSNextProtocolSet protoset, const char *protocol);
 TSAcceptor TSAcceptorGet(TSVConn sslp);
 TSNextProtocolSet TSGetcloneProtoSet(TSAcceptor tna);
@@ -1246,6 +1250,10 @@ int TSAcceptorIDGet(TSAcceptor acceptor);
 
 // Returns 1 if the sslp argument refers to a SSL connection
 tsapi int TSVConnIsSsl(TSVConn sslp);
+tsapi TSSslSession TSSslSessionGet(const TSSslSessionID *session_id);
+tsapi int TSSslSessionGetBuffer(const TSSslSessionID *session_id, char *buffer, int *len_ptr);
+tsapi TSReturnCode TSSslSessionInsert(const TSSslSessionID *session_id, TSSslSession add_session);
+tsapi TSReturnCode TSSslSessionRemove(const TSSslSessionID *session_id);
 
 /* --------------------------------------------------------------------------
    HTTP transactions */
@@ -1525,9 +1533,12 @@ tsapi void *TSHttpSsnArgGet(TSHttpSsn ssnp, int arg_idx);
 /* The reserve API should only be use in TSAPI plugins, during plugin initialization! */
 /* The lookup methods can be used anytime, but are best used during initialization as well,
    or at least "cache" the results for best performance. */
-tsapi TSReturnCode TSHttpArgIndexReserve(const char *name, const char *description, int *arg_idx);
-tsapi TSReturnCode TSHttpArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
-tsapi TSReturnCode TSHttpArgIndexLookup(int arg_idx, const char **name, const char **description);
+tsapi TSReturnCode TSHttpTxnArgIndexReserve(const char *name, const char *description, int *arg_idx);
+tsapi TSReturnCode TSHttpTxnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
+tsapi TSReturnCode TSHttpTxnArgIndexLookup(int arg_idx, const char **name, const char **description);
+tsapi TSReturnCode TSHttpSsnArgIndexReserve(const char *name, const char *description, int *arg_idx);
+tsapi TSReturnCode TSHttpSsnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
+tsapi TSReturnCode TSHttpSsnArgIndexLookup(int arg_idx, const char **name, const char **description);
 
 /* ToDo: This is a leftover from olden days, can we eliminate? */
 tsapi void TSHttpTxnSetHttpRetStatus(TSHttpTxn txnp, TSHttpStatus http_retstatus);
@@ -2299,8 +2310,6 @@ tsapi TSReturnCode TSHttpTxnFollowRedirect(TSHttpTxn txnp, int on);
    @param url_len the length of the URL
 */
 tsapi void TSHttpTxnRedirectUrlSet(TSHttpTxn txnp, const char *url, const int url_len);
-//  This is deprecated as of v5.0.0.
-tsapi TS_DEPRECATED void TSRedirectUrlSet(TSHttpTxn txnp, const char *url, const int url_len);
 
 /**
    Return the current (if set) redirection URL string. This is still owned by the

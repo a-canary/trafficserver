@@ -27,7 +27,10 @@ import sys
 
 pip_packages = [
     "autest",
-    "hyper"
+    "hyper",
+    "requests",
+    "dnslib",
+    "httpbin",
 ]
 
 
@@ -161,9 +164,10 @@ def gen_package_cmds(packages):
     return ret
 
 
-extra=''
+extra = ''
 if distro() == 'RHEL' or distro() == 'CentOS':
     extra = ". /opt/rh/rh-python35/enable ;"
+
 
 def venv_cmds(path):
     '''
@@ -174,9 +178,8 @@ def venv_cmds(path):
     return [
         # first command only needed for rhel and centos systems at this time
         extra + " virtualenv --python=python3 {0}".format(path),
-        extra +" {0}/bin/pip install pip --upgrade".format(path)
+        extra + " {0}/bin/pip install pip --upgrade".format(path)
     ]
-    
 
 
 def main():
@@ -222,7 +225,7 @@ def main():
         cmds += venv_cmds(args.venv_path)
         if path_to_pip is None:
             path_to_pip = os.path.join(args.venv_path, "bin", args.use_pip)
-    
+
     cmds += [extra + "{0} install {1}".format(path_to_pip, " ".join(pip_packages))]
 
     run_cmds(cmds)

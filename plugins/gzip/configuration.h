@@ -116,7 +116,7 @@ public:
   void add_compressible_content_type(const std::string &content_type);
   bool is_url_allowed(const char *url, int url_len);
   bool is_content_type_compressible(const char *content_type, int content_type_length);
-  void add_compression_algorithms(const std::string &algorithms);
+  void add_compression_algorithms(std::string &algorithms);
   int compression_algorithms();
 
   // Ref-counting these host configuration objects
@@ -141,7 +141,7 @@ private:
   bool remove_accept_encoding_;
   bool flush_;
   int compression_algorithms_;
-  volatile int ref_count_;
+  int ref_count_;
 
   StringContainer compressible_content_types_;
   StringContainer disallows_;

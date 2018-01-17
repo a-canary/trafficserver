@@ -1622,12 +1622,13 @@ REGRESSION_TEST(SDK_API_TSMutexCreate)(RegressionTest *test, int /* atype ATS_UN
   TSMutexLock(mutexp);
 
   /* This is normal because all locking is from the same thread */
-  TSReturnCode lock = TS_ERROR;
+  TSReturnCode lock1 = TS_ERROR;
+  TSReturnCode lock2 = TS_ERROR;
 
-  TSMutexLockTry(mutexp);
-  lock = TSMutexLockTry(mutexp);
+  lock1 = TSMutexLockTry(mutexp);
+  lock2 = TSMutexLockTry(mutexp);
 
-  if (TS_SUCCESS == lock) {
+  if (TS_SUCCESS == lock1 && TS_SUCCESS == lock2) {
     SDK_RPRINT(test, "TSMutexCreate", "TestCase1", TC_PASS, "ok");
     SDK_RPRINT(test, "TSMutexLock", "TestCase1", TC_PASS, "ok");
     SDK_RPRINT(test, "TSMutexLockTry", "TestCase1", TC_PASS, "ok");
@@ -2154,9 +2155,9 @@ static int
 checkHttpTxnIncomingAddrGet(SocketTest *test, void *data)
 {
   uint16_t port;
-  HttpProxyPort *proxy_port = HttpProxyPort::findHttp(AF_INET);
-  TSHttpTxn txnp            = (TSHttpTxn)data;
-  sockaddr const *ptr       = TSHttpTxnIncomingAddrGet(txnp);
+  const HttpProxyPort *proxy_port = HttpProxyPort::findHttp(AF_INET);
+  TSHttpTxn txnp                  = (TSHttpTxn)data;
+  sockaddr const *ptr             = TSHttpTxnIncomingAddrGet(txnp);
 
   if (nullptr == proxy_port) {
     SDK_RPRINT(test->regtest, "TSHttpTxnIncomingPortGet", "TestCase1", TC_FAIL,
@@ -3277,12 +3278,21 @@ REGRESSION_TEST(SDK_API_TSHttpHdr)(RegressionTest *test, int /* atype ATS_UNUSED
   }
 
   if (strcmp("Not Modified", TSHttpHdrReasonLookup(TS_HTTP_STATUS_NOT_MODIFIED)) != 0) {
-    SDK_RPRINT(test, "TSHttpHdrReasonLookup", "TestCase2", TC_FAIL, "TSHttpHdrReasonLookup returns Value's mismatch");
+    SDK_RPRINT(test, "TSHttpHdrReasonLookup", "TestCase4", TC_FAIL, "TSHttpHdrReasonLookup returns Value's mismatch");
     if (test_passed_Http_Hdr_Reason_Lookup == true) {
       test_passed_Http_Hdr_Reason_Lookup = false;
     }
   } else {
     SDK_RPRINT(test, "TSHttpHdrReasonLookup", "TestCase4", TC_PASS, "ok");
+  }
+
+  if (strcmp("Early Hints", TSHttpHdrReasonLookup(TS_HTTP_STATUS_EARLY_HINTS)) != 0) {
+    SDK_RPRINT(test, "TSHttpHdrReasonLookup", "TestCase5", TC_FAIL, "TSHttpHdrReasonLookup returns Value's mismatch");
+    if (test_passed_Http_Hdr_Reason_Lookup == true) {
+      test_passed_Http_Hdr_Reason_Lookup = false;
+    }
+  } else {
+    SDK_RPRINT(test, "TSHttpHdrReasonLookup", "TestCase5", TC_PASS, "ok");
   }
 
   // Copy
@@ -4762,7 +4772,6 @@ REGRESSION_TEST(SDK_API_TSMimeHdrParse)(RegressionTest *test, int /* atype ATS_U
   TSParseResult retval;
   int hdrLength;
 
-  bool test_passed_parser_create              = false;
   bool test_passed_parse                      = false;
   bool test_passed_parser_clear               = false;
   bool test_passed_parser_destroy             = false;
@@ -4770,7 +4779,6 @@ REGRESSION_TEST(SDK_API_TSMimeHdrParse)(RegressionTest *test, int /* atype ATS_U
   bool test_passed_mime_hdr_length_get        = false;
   bool test_passed_mime_hdr_field_next_dup    = false;
   bool test_passed_mime_hdr_copy              = false;
-  bool test_passed_mime_hdr_clone             = false;
   bool test_passed_mime_hdr_field_remove      = false;
   bool test_passed_mime_hdr_field_copy        = false;
   bool test_passed_mime_hdr_field_copy_values = false;
@@ -4780,80 +4788,63 @@ REGRESSION_TEST(SDK_API_TSMimeHdrParse)(RegressionTest *test, int /* atype ATS_U
   // Create Parser
   parser = TSMimeParserCreate();
   SDK_RPRINT(test, "TSMimeParserCreate", "TestCase1", TC_PASS, "ok");
-  test_passed_parser_create = true;
 
-  if (test_passed_parser_create == true) {
-    // Parsing
-    bufp1 = TSMBufferCreate();
-    if (TSMimeHdrCreate(bufp1, &mime_hdr_loc1) != TS_SUCCESS) {
-      SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Cannot create Mime hdr for parsing");
-      SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as unable to create Mime Header for parsing");
-      SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as unable to create Mime Header for parsing");
+  // Parsing
+  bufp1 = TSMBufferCreate();
+  if (TSMimeHdrCreate(bufp1, &mime_hdr_loc1) != TS_SUCCESS) {
+    SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Cannot create Mime hdr for parsing");
+    SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as unable to create Mime Header for parsing");
+    SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as unable to create Mime Header for parsing");
 
-      if (TSMBufferDestroy(bufp1) == TS_ERROR) {
-        SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Error in Destroying MBuffer");
-      }
-    } else {
-      start = parse_string;
-      end   = parse_string + strlen(parse_string) + 1;
-      if ((retval = TSMimeHdrParse(parser, bufp1, mime_hdr_loc1, &start, end)) == TS_PARSE_ERROR) {
-        SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "TSMimeHdrParse returns TS_PARSE_ERROR");
-        SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned Error.");
-        SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned Error.");
-      } else {
-        if (retval == TS_PARSE_DONE) {
-          temp = convert_mime_hdr_to_string(bufp1, mime_hdr_loc1); // Implements TSMimeHdrPrint.
-          if (strcmp(parse_string, temp) == 0) {
-            SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_PASS, "ok");
-            SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_PASS, "ok");
-
-            // TSMimeHdrLengthGet
-            hdrLength = TSMimeHdrLengthGet(bufp1, mime_hdr_loc1);
-            if (hdrLength == (int)strlen(temp)) {
-              SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_PASS, "ok");
-              test_passed_mime_hdr_length_get = true;
-            } else {
-              SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Value's Mismatch");
-            }
-
-            test_passed_parse          = true;
-            test_passed_mime_hdr_print = true;
-          } else {
-            SDK_RPRINT(test, "TSMimeHdrParse|TSMimeHdrPrint", "TestCase1", TC_FAIL, "Incorrect parsing or incorrect Printing");
-            SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL,
-                       "Cannot run test as TSMimeHdrParse|TSMimeHdrPrint failed.");
-          }
-
-          TSfree(temp);
-        } else {
-          SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Parsing Error");
-          SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned error.");
-          SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned error.");
-        }
-      }
+    if (TSMBufferDestroy(bufp1) == TS_ERROR) {
+      SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Error in Destroying MBuffer");
     }
   } else {
-    SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Cannot run test as unable to create a parser");
-    SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as unable to create a parser");
-    SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as unable to create a parser");
+    start = parse_string;
+    end   = parse_string + strlen(parse_string) + 1;
+    if ((retval = TSMimeHdrParse(parser, bufp1, mime_hdr_loc1, &start, end)) == TS_PARSE_ERROR) {
+      SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "TSMimeHdrParse returns TS_PARSE_ERROR");
+      SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned Error.");
+      SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned Error.");
+    } else {
+      if (retval == TS_PARSE_DONE) {
+        temp = convert_mime_hdr_to_string(bufp1, mime_hdr_loc1); // Implements TSMimeHdrPrint.
+        if (strcmp(parse_string, temp) == 0) {
+          SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_PASS, "ok");
+          SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_PASS, "ok");
+
+          // TSMimeHdrLengthGet
+          hdrLength = TSMimeHdrLengthGet(bufp1, mime_hdr_loc1);
+          if (hdrLength == (int)strlen(temp)) {
+            SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_PASS, "ok");
+            test_passed_mime_hdr_length_get = true;
+          } else {
+            SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Value's Mismatch");
+          }
+
+          test_passed_parse          = true;
+          test_passed_mime_hdr_print = true;
+        } else {
+          SDK_RPRINT(test, "TSMimeHdrParse|TSMimeHdrPrint", "TestCase1", TC_FAIL, "Incorrect parsing or incorrect Printing");
+          SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse|TSMimeHdrPrint failed.");
+        }
+
+        TSfree(temp);
+      } else {
+        SDK_RPRINT(test, "TSMimeHdrParse", "TestCase1", TC_FAIL, "Parsing Error");
+        SDK_RPRINT(test, "TSMimeHdrPrint", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned error.");
+        SDK_RPRINT(test, "TSMimeHdrLengthGet", "TestCase1", TC_FAIL, "Cannot run test as TSMimeHdrParse returned error.");
+      }
+    }
   }
 
-  // HOW DO I CHECK FOR PARSER CLEAR????
-  if (test_passed_parser_create == true) {
-    TSMimeParserClear(parser);
-    SDK_RPRINT(test, "TSMimeParserClear", "TestCase1", TC_PASS, "ok");
-    test_passed_parser_clear = true;
-  } else {
-    SDK_RPRINT(test, "TSMimeParserClear", "TestCase1", TC_FAIL, "Cannot run test as unable to create a parser");
-  }
+  TSMimeParserClear(parser);
+  SDK_RPRINT(test, "TSMimeParserClear", "TestCase1", TC_PASS, "ok");
+  test_passed_parser_clear = true;
 
-  if (test_passed_parser_create == true) {
-    TSMimeParserDestroy(parser);
-    SDK_RPRINT(test, "TSMimeParserDestroy", "TestCase1", TC_PASS, "ok");
-    test_passed_parser_destroy = true;
-  } else {
-    SDK_RPRINT(test, "TSMimeParserDestroy", "TestCase1", TC_FAIL, "Cannot run test as unable to create a parser");
-  }
+  TSMimeParserDestroy(parser);
+  SDK_RPRINT(test, "TSMimeParserDestroy", "TestCase1", TC_PASS, "ok");
+  test_passed_parser_destroy = true;
 
   // TSMimeHdrFieldNextDup
   if (test_passed_parse == true) {
@@ -4930,7 +4921,6 @@ REGRESSION_TEST(SDK_API_TSMimeHdrParse)(RegressionTest *test, int /* atype ATS_U
 
   bufp3 = TSMBufferCreate();
   TSMimeHdrCreate(bufp3, &mime_hdr_loc3);
-  test_passed_mime_hdr_clone = true;
 
   // TSMimeHdrFieldRemove
   if (test_passed_mime_hdr_copy == true) {
@@ -5021,42 +5011,38 @@ REGRESSION_TEST(SDK_API_TSMimeHdrParse)(RegressionTest *test, int /* atype ATS_U
   }
 
   // TSMimeHdrFieldClone
-  if (test_passed_mime_hdr_clone == true) {
-    field_loc1 = nullptr;
-    field_loc2 = nullptr;
-    if ((field_loc2 = TSMimeHdrFieldGet(bufp1, mime_hdr_loc1, 0)) == TS_NULL_MLOC) {
-      SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "Unable to get source field for copying");
-    } else {
-      if (TSMimeHdrFieldClone(bufp3, mime_hdr_loc3, bufp1, mime_hdr_loc1, field_loc2, &field_loc1) != TS_SUCCESS) {
-        SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "TSMimeHdrFieldClone returns TS_ERROR");
-      } else {
-        if ((compare_field_names(test, bufp3, mime_hdr_loc3, field_loc1, bufp1, mime_hdr_loc1, field_loc2) == TS_ERROR) ||
-            (compare_field_values(test, bufp3, mime_hdr_loc3, field_loc1, bufp1, mime_hdr_loc1, field_loc2) == TS_ERROR)) {
-          SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "Value's Mismatch");
-        } else {
-          SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_PASS, "ok");
-        }
-      }
-    }
-    if (field_loc1 != nullptr) {
-      if (TSHandleMLocRelease(bufp3, mime_hdr_loc3, field_loc1) == TS_ERROR) {
-        SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase7", TC_FAIL, "TSHandleMLocRelease returns TS_ERROR");
-        test_passed_handle_mloc_release = false;
-      } else {
-        SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase7", TC_PASS, "ok");
-      }
-    }
-
-    if (field_loc2 != nullptr) {
-      if (TSHandleMLocRelease(bufp1, mime_hdr_loc1, field_loc2) == TS_ERROR) {
-        SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase8", TC_FAIL, "TSHandleMLocRelease returns TS_ERROR");
-        test_passed_handle_mloc_release = false;
-      } else {
-        SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase8", TC_PASS, "ok");
-      }
-    }
+  field_loc1 = nullptr;
+  field_loc2 = nullptr;
+  if ((field_loc2 = TSMimeHdrFieldGet(bufp1, mime_hdr_loc1, 0)) == TS_NULL_MLOC) {
+    SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "Unable to get source field for copying");
   } else {
-    SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "Unable to run test as bufp3 might not have been created");
+    if (TSMimeHdrFieldClone(bufp3, mime_hdr_loc3, bufp1, mime_hdr_loc1, field_loc2, &field_loc1) != TS_SUCCESS) {
+      SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "TSMimeHdrFieldClone returns TS_ERROR");
+    } else {
+      if ((compare_field_names(test, bufp3, mime_hdr_loc3, field_loc1, bufp1, mime_hdr_loc1, field_loc2) == TS_ERROR) ||
+          (compare_field_values(test, bufp3, mime_hdr_loc3, field_loc1, bufp1, mime_hdr_loc1, field_loc2) == TS_ERROR)) {
+        SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_FAIL, "Value's Mismatch");
+      } else {
+        SDK_RPRINT(test, "TSMimeHdrFieldClone", "TestCase1", TC_PASS, "ok");
+      }
+    }
+  }
+  if (field_loc1 != nullptr) {
+    if (TSHandleMLocRelease(bufp3, mime_hdr_loc3, field_loc1) == TS_ERROR) {
+      SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase7", TC_FAIL, "TSHandleMLocRelease returns TS_ERROR");
+      test_passed_handle_mloc_release = false;
+    } else {
+      SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase7", TC_PASS, "ok");
+    }
+  }
+
+  if (field_loc2 != nullptr) {
+    if (TSHandleMLocRelease(bufp1, mime_hdr_loc1, field_loc2) == TS_ERROR) {
+      SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase8", TC_FAIL, "TSHandleMLocRelease returns TS_ERROR");
+      test_passed_handle_mloc_release = false;
+    } else {
+      SDK_RPRINT(test, "TSHandleMLocRelease", "TestCase8", TC_PASS, "ok");
+    }
   }
 
   // TSMimeHdrFieldCopyValues
@@ -5130,12 +5116,12 @@ REGRESSION_TEST(SDK_API_TSMimeHdrParse)(RegressionTest *test, int /* atype ATS_U
     SDK_RPRINT(test, "", "TestCase", TC_FAIL, "TSMBufferDestroy(bufp3) returns TS_ERROR");
   }
 
-  if ((test_passed_parser_create != true) || (test_passed_parse != true) || (test_passed_parser_clear != true) ||
-      (test_passed_parser_destroy != true) || (test_passed_mime_hdr_print != true) || (test_passed_mime_hdr_length_get != true) ||
+  if ((test_passed_parse != true) || (test_passed_parser_clear != true) || (test_passed_parser_destroy != true) ||
+      (test_passed_mime_hdr_print != true) || (test_passed_mime_hdr_length_get != true) ||
       (test_passed_mime_hdr_field_next_dup != true) || (test_passed_mime_hdr_copy != true) ||
-      (test_passed_mime_hdr_clone != true) || (test_passed_mime_hdr_field_remove != true) ||
-      (test_passed_mime_hdr_field_copy != true) || (test_passed_mime_hdr_field_copy_values != true) ||
-      (test_passed_handle_mloc_release != true) || (test_passed_mime_hdr_field_find != true)) {
+      (test_passed_mime_hdr_field_remove != true) || (test_passed_mime_hdr_field_copy != true) ||
+      (test_passed_mime_hdr_field_copy_values != true) || (test_passed_handle_mloc_release != true) ||
+      (test_passed_mime_hdr_field_find != true)) {
     *pstatus = REGRESSION_TEST_FAILED;
   } else {
     *pstatus = REGRESSION_TEST_PASSED;
@@ -5493,6 +5479,7 @@ typedef enum {
 
   ORIG_TS_HTTP_STATUS_CONTINUE           = 100,
   ORIG_TS_HTTP_STATUS_SWITCHING_PROTOCOL = 101,
+  ORIG_TS_HTTP_STATUS_EARLY_HINTS        = 103,
 
   ORIG_TS_HTTP_STATUS_OK                            = 200,
   ORIG_TS_HTTP_STATUS_CREATED                       = 201,
@@ -5556,7 +5543,9 @@ typedef enum {
   ORIG_TS_VCONN_PRE_ACCEPT_HOOK = ORIG_TS_SSL_FIRST_HOOK,
   ORIG_TS_SSL_SNI_HOOK,
   ORIG_TS_SSL_SERVERNAME_HOOK,
-  ORIG_TS_SSL_LAST_HOOK = TS_SSL_SERVERNAME_HOOK,
+  ORIG_TS_SSL_SERVER_VERIFY_HOOK,
+  ORIG_TS_SSL_SESSION_HOOK,
+  ORIG_TS_SSL_LAST_HOOK = ORIG_TS_SSL_SESSION_HOOK,
   ORIG_TS_HTTP_LAST_HOOK
 } ORIG_TSHttpHookID;
 
@@ -5662,6 +5651,8 @@ REGRESSION_TEST(SDK_API_TSConstant)(RegressionTest *test, int /* atype ATS_UNUSE
   PRINT_DIFF(TS_HTTP_STATUS_NONE);
   PRINT_DIFF(TS_HTTP_STATUS_CONTINUE);
   PRINT_DIFF(TS_HTTP_STATUS_SWITCHING_PROTOCOL);
+  PRINT_DIFF(TS_HTTP_STATUS_EARLY_HINTS);
+
   PRINT_DIFF(TS_HTTP_STATUS_OK);
   PRINT_DIFF(TS_HTTP_STATUS_CREATED);
 
@@ -6516,13 +6507,6 @@ EXCLUSIVE_REGRESSION_TEST(SDK_API_HttpTxnCache)(RegressionTest *test, int /* aty
 //                    TSHttpTxnUntransformedRespCache
 ///////////////////////////////////////////////////////
 
-/** Append Transform Data Structure **/
-typedef struct {
-  TSVIO output_vio;
-  TSIOBuffer output_buffer;
-  TSIOBufferReader output_reader;
-  int append_needed;
-} MyTransformData;
 /** Append Transform Data Structure Ends **/
 
 typedef struct {
@@ -6540,9 +6524,23 @@ typedef struct {
   bool test_passed_txn_untransformed_resp_cache;
   bool test_passed_transform_create;
   int req_no;
-  MyTransformData *transformData;
-  int magic;
+  uint32_t magic;
 } TransformTestData;
+
+/** Append Transform Data Structure **/
+struct AppendTransformTestData {
+  TSVIO output_vio               = nullptr;
+  TSIOBuffer output_buffer       = nullptr;
+  TSIOBufferReader output_reader = nullptr;
+  TransformTestData *test_data   = nullptr;
+  int append_needed              = 1;
+
+  ~AppendTransformTestData()
+  {
+    if (output_buffer)
+      TSIOBufferDestroy(output_buffer);
+  }
+};
 
 /**** Append Transform Code (Tailored to needs)****/
 
@@ -6550,38 +6548,11 @@ static TSIOBuffer append_buffer;
 static TSIOBufferReader append_buffer_reader;
 static int64_t append_buffer_length;
 
-static MyTransformData *
-my_data_alloc()
-{
-  MyTransformData *data;
-
-  data                = (MyTransformData *)TSmalloc(sizeof(MyTransformData));
-  data->output_vio    = nullptr;
-  data->output_buffer = nullptr;
-  data->output_reader = nullptr;
-  data->append_needed = 1;
-
-  return data;
-}
-
-static void
-my_data_destroy(MyTransformData *data)
-{
-  if (data) {
-    if (data->output_buffer) {
-      TSIOBufferDestroy(data->output_buffer);
-    }
-    TSfree(data);
-  }
-}
-
 static void
 handle_transform(TSCont contp)
 {
   TSVConn output_conn;
   TSVIO write_vio;
-  TransformTestData *contData;
-  MyTransformData *data;
   int64_t towrite;
   int64_t avail;
 
@@ -6595,25 +6566,19 @@ handle_transform(TSCont contp)
   write_vio = TSVConnWriteVIOGet(contp);
 
   /* Get our data structure for this operation. The private data
-     structure contains the output VIO and output buffer. If the
-     private data structure pointer is NULL, then we'll create it
-     and initialize its internals. */
-  contData = (TransformTestData *)TSContDataGet(contp);
-  data     = contData->transformData;
-  if (!data) {
+     structure contains the output VIO and output buffer.
+  */
+  auto *data = static_cast<AppendTransformTestData *>(TSContDataGet(contp));
+  if (!data->output_buffer) {
     towrite = TSVIONBytesGet(write_vio);
     if (towrite != INT64_MAX) {
       towrite += append_buffer_length;
     }
-    contData->transformData = my_data_alloc();
-    data                    = contData->transformData;
-    data->output_buffer     = TSIOBufferCreate();
-    data->output_reader     = TSIOBufferReaderAlloc(data->output_buffer);
-    data->output_vio        = TSVConnWrite(output_conn, contp, data->output_reader, towrite);
-    // Don't need this as the structure is encapsulated in another structure
-    // which is set to be Continuation's Data.
-    // TSContDataSet (contp, data);
+    data->output_buffer = TSIOBufferCreate();
+    data->output_reader = TSIOBufferReaderAlloc(data->output_buffer);
+    data->output_vio    = TSVConnWrite(output_conn, contp, data->output_reader, towrite);
   }
+  ink_assert(data->output_vio);
 
   /* We also check to see if the write VIO's buffer is non-NULL. A
      NULL buffer indicates that the write operation has been
@@ -6696,16 +6661,15 @@ handle_transform(TSCont contp)
 static int
 transformtest_transform(TSCont contp, TSEvent event, void * /* edata ATS_UNUSED */)
 {
-  TransformTestData *contData = (TransformTestData *)TSContDataGet(contp);
-  if (contData->test_passed_transform_create == false) {
-    contData->test_passed_transform_create = true;
-    SDK_RPRINT(contData->test, "TSTransformCreate", "TestCase1", TC_PASS, "ok");
+  auto *data = static_cast<AppendTransformTestData *>(TSContDataGet(contp));
+  if (data->test_data->test_passed_transform_create == false) {
+    data->test_data->test_passed_transform_create = true;
+    SDK_RPRINT(data->test_data->test, "TSTransformCreate", "TestCase1", TC_PASS, "ok");
   }
   /* Check to see if the transformation has been closed by a call to
      TSVConnClose. */
   if (TSVConnClosedGet(contp)) {
-    my_data_destroy(contData->transformData);
-    contData->transformData = nullptr;
+    delete data;
     TSContDestroy(contp);
     return 0;
   } else {
@@ -6747,9 +6711,11 @@ transformable(TSHttpTxn txnp, TransformTestData *data)
 {
   TSMBuffer bufp;
   TSMLoc hdr_loc;
+  int ret = 0;
 
   if (TSHttpTxnServerRespGet(txnp, &bufp, &hdr_loc) != TS_SUCCESS) {
     SDK_RPRINT(data->test, "TSHttpTxnTransform", "", TC_FAIL, "[transformable]: TSHttpTxnServerRespGet return 0");
+    return ret;
   }
 
   /*
@@ -6757,7 +6723,7 @@ transformable(TSHttpTxn txnp, TransformTestData *data)
    */
 
   if (TS_HTTP_STATUS_OK == TSHttpHdrStatusGet(bufp, hdr_loc)) {
-    return 1;
+    ret = 1;
   }
   // XXX - Can't return TS_ERROR because that is a different type
   // -bcall 7/24/07
@@ -6765,18 +6731,21 @@ transformable(TSHttpTxn txnp, TransformTestData *data)
   //      SDK_RPRINT(data->test,"TSHttpTxnTransform","",TC_FAIL,"[transformable]: TSHttpHdrStatusGet returns TS_ERROR");
   //     }
 
-  return 0; /* not a 200 */
+  TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+  return ret; /* not a 200 */
 }
 
 static void
-transform_add(TSHttpTxn txnp, TransformTestData *data)
+transform_add(TSHttpTxn txnp, TransformTestData *test_data)
 {
   TSVConn connp;
+  auto *data = new AppendTransformTestData;
 
-  connp = TSTransformCreate(transformtest_transform, txnp);
+  data->test_data = test_data;
+  connp           = TSTransformCreate(transformtest_transform, txnp);
   TSContDataSet(connp, data);
   if (connp == nullptr) {
-    SDK_RPRINT(data->test, "TSHttpTxnTransform", "", TC_FAIL, "Unable to create Transformation.");
+    SDK_RPRINT(data->test_data->test, "TSHttpTxnTransform", "", TC_FAIL, "Unable to create Transformation.");
     return;
   }
 
@@ -7039,7 +7008,6 @@ EXCLUSIVE_REGRESSION_TEST(SDK_API_HttpTxnTransform)(RegressionTest *test, int /*
   socktest->test_passed_txn_transformed_resp_cache = false;
   socktest->test_passed_txn_transformed_resp_cache = false;
   socktest->test_passed_transform_create           = false;
-  socktest->transformData                          = nullptr;
   socktest->req_no                                 = 1;
   socktest->magic                                  = MAGIC_ALIVE;
   TSContDataSet(cont, socktest);
@@ -7522,116 +7490,119 @@ EXCLUSIVE_REGRESSION_TEST(SDK_API_TSHttpConnectServerIntercept)(RegressionTest *
 ////////////////////////////////////////////////
 
 // The order of these should be the same as TSOverridableConfigKey
-const char *SDK_Overridable_Configs[TS_CONFIG_LAST_ENTRY] = {
-  "proxy.config.url_remap.pristine_host_hdr",
-  "proxy.config.http.chunking_enabled",
-  "proxy.config.http.negative_caching_enabled",
-  "proxy.config.http.negative_caching_lifetime",
-  "proxy.config.http.cache.when_to_revalidate",
-  "proxy.config.http.keep_alive_enabled_in",
-  "proxy.config.http.keep_alive_enabled_out",
-  "proxy.config.http.keep_alive_post_out",
-  "proxy.config.http.server_session_sharing.match",
-  "proxy.config.net.sock_recv_buffer_size_out",
-  "proxy.config.net.sock_send_buffer_size_out",
-  "proxy.config.net.sock_option_flag_out",
-  "proxy.config.http.forward.proxy_auth_to_parent",
-  "proxy.config.http.anonymize_remove_from",
-  "proxy.config.http.anonymize_remove_referer",
-  "proxy.config.http.anonymize_remove_user_agent",
-  "proxy.config.http.anonymize_remove_cookie",
-  "proxy.config.http.anonymize_remove_client_ip",
-  "proxy.config.http.insert_client_ip",
-  "proxy.config.http.response_server_enabled",
-  "proxy.config.http.insert_squid_x_forwarded_for",
-  "proxy.config.http.server_tcp_init_cwnd",
-  "proxy.config.http.send_http11_requests",
-  "proxy.config.http.cache.http",
-  "proxy.config.http.cache.ignore_client_no_cache",
-  "proxy.config.http.cache.ignore_client_cc_max_age",
-  "proxy.config.http.cache.ims_on_client_no_cache",
-  "proxy.config.http.cache.ignore_server_no_cache",
-  "proxy.config.http.cache.cache_responses_to_cookies",
-  "proxy.config.http.cache.ignore_authentication",
-  "proxy.config.http.cache.cache_urls_that_look_dynamic",
-  "proxy.config.http.cache.required_headers",
-  "proxy.config.http.insert_request_via_str",
-  "proxy.config.http.insert_response_via_str",
-  "proxy.config.http.cache.heuristic_min_lifetime",
-  "proxy.config.http.cache.heuristic_max_lifetime",
-  "proxy.config.http.cache.guaranteed_min_lifetime",
-  "proxy.config.http.cache.guaranteed_max_lifetime",
-  "proxy.config.http.cache.max_stale_age",
-  "proxy.config.http.keep_alive_no_activity_timeout_in",
-  "proxy.config.http.keep_alive_no_activity_timeout_out",
-  "proxy.config.http.transaction_no_activity_timeout_in",
-  "proxy.config.http.transaction_no_activity_timeout_out",
-  "proxy.config.http.transaction_active_timeout_out",
-  "proxy.config.http.origin_max_connections",
-  "proxy.config.http.connect_attempts_max_retries",
-  "proxy.config.http.connect_attempts_max_retries_dead_server",
-  "proxy.config.http.connect_attempts_rr_retries",
-  "proxy.config.http.connect_attempts_timeout",
-  "proxy.config.http.post_connect_attempts_timeout",
-  "proxy.config.http.down_server.cache_time",
-  "proxy.config.http.down_server.abort_threshold",
-  "proxy.config.http.doc_in_cache_skip_dns",
-  "proxy.config.http.background_fill_active_timeout",
-  "proxy.config.http.response_server_str",
-  "proxy.config.http.cache.heuristic_lm_factor",
-  "proxy.config.http.background_fill_completed_threshold",
-  "proxy.config.net.sock_packet_mark_out",
-  "proxy.config.net.sock_packet_tos_out",
-  "proxy.config.http.insert_age_in_response",
-  "proxy.config.http.chunking.size",
-  "proxy.config.http.flow_control.enabled",
-  "proxy.config.http.flow_control.low_water",
-  "proxy.config.http.flow_control.high_water",
-  "proxy.config.http.cache.range.lookup",
-  "proxy.config.http.normalize_ae_gzip",
-  "proxy.config.http.default_buffer_size",
-  "proxy.config.http.default_buffer_water_mark",
-  "proxy.config.http.request_header_max_size",
-  "proxy.config.http.response_header_max_size",
-  "proxy.config.http.negative_revalidating_enabled",
-  "proxy.config.http.negative_revalidating_lifetime",
-  "proxy.config.ssl.hsts_max_age",
-  "proxy.config.ssl.hsts_include_subdomains",
-  "proxy.config.http.cache.open_read_retry_time",
-  "proxy.config.http.cache.max_open_read_retries",
-  "proxy.config.http.cache.range.write",
-  "proxy.config.http.post.check.content_length.enabled",
-  "proxy.config.http.global_user_agent_header",
-  "proxy.config.http.auth_server_session_private",
-  "proxy.config.http.slow.log.threshold",
-  "proxy.config.http.cache.generation",
-  "proxy.config.body_factory.template_base",
-  "proxy.config.http.cache.open_write_fail_action",
-  "proxy.config.http.redirection_enabled",
-  "proxy.config.http.number_of_redirections",
-  "proxy.config.http.cache.max_open_write_retries",
-  "proxy.config.http.redirect_use_orig_cache_key",
-  "proxy.config.http.attach_server_session_to_client",
-  "proxy.config.http.origin_max_connections_queue",
-  "proxy.config.websocket.no_activity_timeout",
-  "proxy.config.websocket.active_timeout",
-  "proxy.config.http.uncacheable_requests_bypass_parent",
-  "proxy.config.http.parent_proxy.total_connect_attempts",
-  "proxy.config.http.transaction_active_timeout_in",
-  "proxy.config.srv_enabled",
-  "proxy.config.http.forward_connect_method",
-  "proxy.config.ssl.client.cert.filename",
-  "proxy.config.ssl.client.cert.path",
-  "proxy.config.http.parent_proxy.mark_down_hostdb",
-  "proxy.config.http.cache.enable_default_vary_headers",
-  "proxy.config.http.cache.vary_default_text",
-  "proxy.config.http.cache.vary_default_images",
-  "proxy.config.http.cache.vary_default_other",
-  "proxy.config.http.cache.ignore_accept_mismatch",
-  "proxy.config.http.cache.ignore_accept_language_mismatch",
-  "proxy.config.http.cache.ignore_accept_encoding_mismatch",
-  "proxy.config.http.cache.ignore_accept_charset_mismatch",
-};
+const char *SDK_Overridable_Configs[TS_CONFIG_LAST_ENTRY] = {"proxy.config.url_remap.pristine_host_hdr",
+                                                             "proxy.config.http.chunking_enabled",
+                                                             "proxy.config.http.negative_caching_enabled",
+                                                             "proxy.config.http.negative_caching_lifetime",
+                                                             "proxy.config.http.cache.when_to_revalidate",
+                                                             "proxy.config.http.keep_alive_enabled_in",
+                                                             "proxy.config.http.keep_alive_enabled_out",
+                                                             "proxy.config.http.keep_alive_post_out",
+                                                             "proxy.config.http.server_session_sharing.match",
+                                                             "proxy.config.net.sock_recv_buffer_size_out",
+                                                             "proxy.config.net.sock_send_buffer_size_out",
+                                                             "proxy.config.net.sock_option_flag_out",
+                                                             "proxy.config.http.forward.proxy_auth_to_parent",
+                                                             "proxy.config.http.anonymize_remove_from",
+                                                             "proxy.config.http.anonymize_remove_referer",
+                                                             "proxy.config.http.anonymize_remove_user_agent",
+                                                             "proxy.config.http.anonymize_remove_cookie",
+                                                             "proxy.config.http.anonymize_remove_client_ip",
+                                                             "proxy.config.http.insert_client_ip",
+                                                             "proxy.config.http.response_server_enabled",
+                                                             "proxy.config.http.insert_squid_x_forwarded_for",
+                                                             "proxy.config.http.server_tcp_init_cwnd",
+                                                             "proxy.config.http.send_http11_requests",
+                                                             "proxy.config.http.cache.http",
+                                                             "proxy.config.http.cache.ignore_client_no_cache",
+                                                             "proxy.config.http.cache.ignore_client_cc_max_age",
+                                                             "proxy.config.http.cache.ims_on_client_no_cache",
+                                                             "proxy.config.http.cache.ignore_server_no_cache",
+                                                             "proxy.config.http.cache.cache_responses_to_cookies",
+                                                             "proxy.config.http.cache.ignore_authentication",
+                                                             "proxy.config.http.cache.cache_urls_that_look_dynamic",
+                                                             "proxy.config.http.cache.required_headers",
+                                                             "proxy.config.http.insert_request_via_str",
+                                                             "proxy.config.http.insert_response_via_str",
+                                                             "proxy.config.http.cache.heuristic_min_lifetime",
+                                                             "proxy.config.http.cache.heuristic_max_lifetime",
+                                                             "proxy.config.http.cache.guaranteed_min_lifetime",
+                                                             "proxy.config.http.cache.guaranteed_max_lifetime",
+                                                             "proxy.config.http.cache.max_stale_age",
+                                                             "proxy.config.http.keep_alive_no_activity_timeout_in",
+                                                             "proxy.config.http.keep_alive_no_activity_timeout_out",
+                                                             "proxy.config.http.transaction_no_activity_timeout_in",
+                                                             "proxy.config.http.transaction_no_activity_timeout_out",
+                                                             "proxy.config.http.transaction_active_timeout_out",
+                                                             "proxy.config.http.origin_max_connections",
+                                                             "proxy.config.http.connect_attempts_max_retries",
+                                                             "proxy.config.http.connect_attempts_max_retries_dead_server",
+                                                             "proxy.config.http.connect_attempts_rr_retries",
+                                                             "proxy.config.http.connect_attempts_timeout",
+                                                             "proxy.config.http.post_connect_attempts_timeout",
+                                                             "proxy.config.http.down_server.cache_time",
+                                                             "proxy.config.http.down_server.abort_threshold",
+                                                             "proxy.config.http.doc_in_cache_skip_dns",
+                                                             "proxy.config.http.background_fill_active_timeout",
+                                                             "proxy.config.http.response_server_str",
+                                                             "proxy.config.http.cache.heuristic_lm_factor",
+                                                             "proxy.config.http.background_fill_completed_threshold",
+                                                             "proxy.config.net.sock_packet_mark_out",
+                                                             "proxy.config.net.sock_packet_tos_out",
+                                                             "proxy.config.http.insert_age_in_response",
+                                                             "proxy.config.http.chunking.size",
+                                                             "proxy.config.http.flow_control.enabled",
+                                                             "proxy.config.http.flow_control.low_water",
+                                                             "proxy.config.http.flow_control.high_water",
+                                                             "proxy.config.http.cache.range.lookup",
+                                                             "proxy.config.http.default_buffer_size",
+                                                             "proxy.config.http.default_buffer_water_mark",
+                                                             "proxy.config.http.request_header_max_size",
+                                                             "proxy.config.http.response_header_max_size",
+                                                             "proxy.config.http.negative_revalidating_enabled",
+                                                             "proxy.config.http.negative_revalidating_lifetime",
+                                                             "proxy.config.ssl.hsts_max_age",
+                                                             "proxy.config.ssl.hsts_include_subdomains",
+                                                             "proxy.config.http.cache.open_read_retry_time",
+                                                             "proxy.config.http.cache.max_open_read_retries",
+                                                             "proxy.config.http.cache.range.write",
+                                                             "proxy.config.http.post.check.content_length.enabled",
+                                                             "proxy.config.http.global_user_agent_header",
+                                                             "proxy.config.http.auth_server_session_private",
+                                                             "proxy.config.http.slow.log.threshold",
+                                                             "proxy.config.http.cache.generation",
+                                                             "proxy.config.body_factory.template_base",
+                                                             "proxy.config.http.cache.open_write_fail_action",
+                                                             "proxy.config.http.number_of_redirections",
+                                                             "proxy.config.http.cache.max_open_write_retries",
+                                                             "proxy.config.http.redirect_use_orig_cache_key",
+                                                             "proxy.config.http.attach_server_session_to_client",
+                                                             "proxy.config.http.origin_max_connections_queue",
+                                                             "proxy.config.websocket.no_activity_timeout",
+                                                             "proxy.config.websocket.active_timeout",
+                                                             "proxy.config.http.uncacheable_requests_bypass_parent",
+                                                             "proxy.config.http.parent_proxy.total_connect_attempts",
+                                                             "proxy.config.http.transaction_active_timeout_in",
+                                                             "proxy.config.srv_enabled",
+                                                             "proxy.config.http.forward_connect_method",
+                                                             "proxy.config.ssl.client.cert.filename",
+                                                             "proxy.config.ssl.client.cert.path",
+                                                             "proxy.config.http.parent_proxy.mark_down_hostdb",
+                                                             "proxy.config.ssl.client.verify.server",
+                                                             "proxy.config.http.cache.enable_default_vary_headers",
+                                                             "proxy.config.http.cache.vary_default_text",
+                                                             "proxy.config.http.cache.vary_default_images",
+                                                             "proxy.config.http.cache.vary_default_other",
+                                                             "proxy.config.http.cache.ignore_accept_mismatch",
+                                                             "proxy.config.http.cache.ignore_accept_language_mismatch",
+                                                             "proxy.config.http.cache.ignore_accept_encoding_mismatch",
+                                                             "proxy.config.http.cache.ignore_accept_charset_mismatch",
+                                                             "proxy.config.http.parent_proxy.fail_threshold",
+                                                             "proxy.config.http.parent_proxy.retry_time",
+                                                             "proxy.config.http.parent_proxy.per_parent_connect_attempts",
+                                                             "proxy.config.http.parent_proxy.connect_attempts_timeout",
+                                                             "proxy.config.http.normalize_ae",
+                                                             "proxy.config.http.insert_forwarded"};
 
 REGRESSION_TEST(SDK_API_OVERRIDABLE_CONFIGS)(RegressionTest *test, int /* atype ATS_UNUSED */, int *pstatus)
 {

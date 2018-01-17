@@ -59,24 +59,7 @@ int LogCollationClientSM::ID = 0;
 // LogCollationClientSM::LogCollationClientSM
 //-------------------------------------------------------------------------
 
-LogCollationClientSM::LogCollationClientSM(LogHost *log_host)
-  : Continuation(new_ProxyMutex()),
-    m_host_vc(nullptr),
-    m_host_vio(nullptr),
-    m_auth_buffer(nullptr),
-    m_auth_reader(nullptr),
-    m_send_buffer(nullptr),
-    m_send_reader(nullptr),
-    m_pending_action(nullptr),
-    m_pending_event(nullptr),
-    m_abort_vio(nullptr),
-    m_abort_buffer(nullptr),
-    m_host_is_up(false),
-    m_buffer_send_list(nullptr),
-    m_buffer_in_iocore(nullptr),
-    m_flow(LOG_COLL_FLOW_ALLOW),
-    m_log_host(log_host),
-    m_id(ID++)
+LogCollationClientSM::LogCollationClientSM(LogHost *log_host) : Continuation(new_ProxyMutex()), m_log_host(log_host), m_id(ID++)
 {
   Debug("log-coll", "[%d]client::constructor", m_id);
 
@@ -595,8 +578,7 @@ LogCollationClientSM::client_send(int event, VIO * /* vio ATS_UNUSED */)
     Debug("log-coll", "[%d]client::client_send - EVENT_IMMEDIATE", m_id);
     // callback complete, reset m_pending_event
     m_pending_event = nullptr;
-
-  // fall through to LOG_COLL_EVENT_SWITCH
+  // fallthrough
 
   case LOG_COLL_EVENT_SWITCH: {
     Debug("log-coll", "[%d]client::client_send - SWITCH", m_id);

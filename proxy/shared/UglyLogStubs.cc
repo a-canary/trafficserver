@@ -84,23 +84,7 @@ LogCollationAccept::~LogCollationAccept()
 }
 
 #include "LogCollationClientSM.h"
-LogCollationClientSM::LogCollationClientSM(LogHost *log_host)
-  : Continuation(new_ProxyMutex()),
-    m_host_vc(nullptr),
-    m_host_vio(nullptr),
-    m_auth_buffer(nullptr),
-    m_auth_reader(nullptr),
-    m_send_buffer(nullptr),
-    m_send_reader(nullptr),
-    m_pending_action(nullptr),
-    m_pending_event(nullptr),
-    m_abort_vio(nullptr),
-    m_abort_buffer(nullptr),
-    m_buffer_send_list(nullptr),
-    m_buffer_in_iocore(nullptr),
-    m_flow(LOG_COLL_FLOW_ALLOW),
-    m_log_host(log_host),
-    m_id(0)
+LogCollationClientSM::LogCollationClientSM(LogHost *log_host) : Continuation(new_ProxyMutex()), m_log_host(log_host)
 {
 }
 
@@ -120,6 +104,12 @@ UnixNetProcessor::createNetAccept(const NetProcessor::AcceptOptions &opt)
 {
   ink_release_assert(false);
   return nullptr;
+}
+
+void
+UnixNetProcessor::init()
+{
+  ink_release_assert(false);
 }
 
 // TODO: The following was necessary only for Solaris, should examine more.
@@ -156,13 +146,6 @@ CacheVC::handleWrite(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
 UnixNetProcessor unix_netProcessor;
 NetProcessor &netProcessor = unix_netProcessor;
 
-int
-UnixNetProcessor::start(int, size_t)
-{
-  ink_release_assert(false);
-  return 0;
-}
-
 Action *
 NetProcessor::accept(Continuation * /* cont ATS_UNUSED */, AcceptOptions const & /* opt ATS_UNUSED */)
 {
@@ -176,6 +159,12 @@ NetProcessor::main_accept(Continuation * /* cont ATS_UNUSED */, SOCKET /* fd ATS
 {
   ink_release_assert(false);
   return nullptr;
+}
+
+void
+NetProcessor::stop_accept()
+{
+  ink_release_assert(false);
 }
 
 Action *

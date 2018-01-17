@@ -49,10 +49,10 @@
 class Diags;
 
 // extern int diags_on_for_plugins;
-typedef enum {
+enum DiagsTagType {
   DiagsTagType_Debug  = 0, // do not renumber --- used as array index
   DiagsTagType_Action = 1
-} DiagsTagType;
+};
 
 struct DiagsModeOutput {
   bool to_stdout;
@@ -61,18 +61,20 @@ struct DiagsModeOutput {
   bool to_diagslog;
 };
 
-typedef enum {  // do not renumber --- used as array index
-  DL_Diag = 0,  // process does not die
-  DL_Debug,     // process does not die
-  DL_Status,    // process does not die
-  DL_Note,      // process does not die
-  DL_Warning,   // process does not die
-  DL_Error,     // process does not die
-  DL_Fatal,     // causes process termination
-  DL_Alert,     // causes process termination
-  DL_Emergency, // causes process termination
-  DL_Undefined  // must be last, used for size!
-} DiagsLevel;
+enum DiagsLevel { // do not renumber --- used as array index
+  DL_Diag = 0,    // process does not die
+  DL_Debug,       // process does not die
+  DL_Status,      // process does not die
+  DL_Note,        // process does not die
+  DL_Warning,     // process does not die
+  DL_Error,       // process does not die
+  DL_Fatal,       // causes process termination
+  DL_Alert,       // causes process termination
+  DL_Emergency,   // causes process termination
+  DL_Undefined    // must be last, used for size!
+};
+
+enum StdStream { STDOUT = 0, STDERR };
 
 enum RollingEnabledValues { NO_ROLLING = 0, ROLL_ON_TIME, ROLL_ON_SIZE, ROLL_ON_TIME_OR_SIZE, INVALID_ROLLING_VALUE };
 
@@ -88,7 +90,7 @@ typedef void (*DiagsCleanupFunc)();
 
 struct DiagsConfigState {
   // this is static to eliminate many loads from the critical path
-  static bool enabled[2];                    // one debug, one action
+  static int enabled[2];                     // one debug, one action
   DiagsModeOutput outputs[DiagsLevel_Count]; // where each level prints
 };
 
@@ -119,7 +121,7 @@ public:
   BaseLogFile *stderr_log;
 
   const unsigned int magic;
-  volatile DiagsConfigState config;
+  DiagsConfigState config;
   DiagsShowLocation show_location;
   DiagsCleanupFunc cleanup_func;
 
@@ -134,15 +136,21 @@ public:
   }
 
   bool
+  test_override_ip(IpEndpoint const &test_ip)
+  {
+    return this->debug_client_ip == test_ip;
+  }
+
+  bool
   on(DiagsTagType mode = DiagsTagType_Debug) const
   {
-    return (config.enabled[mode]);
+    return ((config.enabled[mode] == 1) || (config.enabled[mode] == 2 && this->get_override()));
   }
 
   bool
   on(const char *tag, DiagsTagType mode = DiagsTagType_Debug) const
   {
-    return (config.enabled[mode] && tag_activated(tag, mode));
+    return this->on(mode) && tag_activated(tag, mode);
   }
 
   /////////////////////////////////////
@@ -215,11 +223,12 @@ public:
   bool should_roll_diagslog();
   bool should_roll_outputlog();
 
-  bool set_stdout_output(const char *_bind_stdout);
-  bool set_stderr_output(const char *_bind_stderr);
+  bool set_std_output(StdStream stream, const char *file);
 
   const char *base_debug_tags;  // internal copy of default debug tags
   const char *base_action_tags; // internal copy of default action tags
+
+  IpAddr debug_client_ip;
 
 private:
   const char *prefix_str;
@@ -240,8 +249,7 @@ private:
   time_t outputlog_time_last_roll;
   time_t diagslog_time_last_roll;
 
-  bool rebind_stdout(int new_fd);
-  bool rebind_stderr(int new_fd);
+  bool rebind_std_stream(StdStream stream, int new_fd);
 
   void
   lock() const
@@ -331,7 +339,7 @@ extern inkcoreapi Diags *diags;
     }                                                                                                     \
   } while (0)
 
-#define DebugSpecific(flag, tag, ...)                                                                       \
+#define SpecificDebug(flag, tag, ...)                                                                       \
   do {                                                                                                      \
     if (unlikely(diags->on())) {                                                                            \
       const SourceLocation loc = MakeSourceLocation();                                                      \
@@ -350,7 +358,7 @@ extern inkcoreapi Diags *diags;
 #define Diag(tag, fmt, ...)
 #define Debug(tag, fmt, ...)
 #define DiagSpecific(flag, tag, ...)
-#define DebugSpecific(flag, tag, ...)
+#define SpecificDebug(flag, tag, ...)
 
 #define is_debug_tag_set(_t) 0
 #define is_action_tag_set(_t) 0

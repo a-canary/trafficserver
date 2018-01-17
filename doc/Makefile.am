@@ -28,7 +28,9 @@ $(man1_MANS) $(man3_MANS) $(man5_MANS) $(man8_MANS): man
 # Hook the 'all' target so that the man pages get generated in the "all" target, prior
 # to "make install". If we leave it to "make install" time, then the man pages are likely
 # to me generated as root.
+if BUILD_DOCS
 all-am: $(man1_MANS) $(man3_MANS) $(man5_MANS) $(man8_MANS)
+endif
 
 endif
 
@@ -46,8 +48,11 @@ PAPER         = letter
 BUILDDIR      = docbuild
 
 # Internal variables.
-PAPEROPT_a4     = -D latex_paper_size=a4
-PAPEROPT_letter = -D latex_paper_size=letter
+# [amc] LaTex apparently doesn't work as of Sphinx 1.6.1
+# see https://media.readthedocs.org/pdf/sphinx/1.6.3/sphinx.pdf
+# section 24.3.2 around page 247, third item for 'NotImplementedError', so this is kind of useless.
+PAPEROPT_a4     = -t latex_a4
+PAPEROPT_letter = -t latex_letter
 ALLSPHINXOPTS   = $(SPHINXOPTS)
 # the i18n builder cannot share the environment and doctrees with the others
 I18NSPHINXOPTS  = $(SPHINXOPTS)

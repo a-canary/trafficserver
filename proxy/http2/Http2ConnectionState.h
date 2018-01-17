@@ -31,14 +31,15 @@
 
 class Http2ClientSession;
 
-enum Http2SendADataFrameResult {
-  HTTP2_SEND_A_DATA_FRAME_NO_ERROR   = 0,
-  HTTP2_SEND_A_DATA_FRAME_NO_WINDOW  = 1,
-  HTTP2_SEND_A_DATA_FRAME_NO_PAYLOAD = 2,
-  HTTP2_SEND_A_DATA_FRAME_DONE       = 3,
+enum class Http2SendDataFrameResult {
+  NO_ERROR = 0,
+  NO_WINDOW,
+  NO_PAYLOAD,
+  ERROR,
+  DONE,
 };
 
-enum Http2ShutdownState { NOT_INITIATED, INITIATED, IN_PROGRESS };
+enum Http2ShutdownState { HTTP2_SHUTDOWN_NONE, HTTP2_SHUTDOWN_NOT_INITIATED, HTTP2_SHUTDOWN_INITIATED, HTTP2_SHUTDOWN_IN_PROGRESS };
 
 class Http2ConnectionSettings
 {
@@ -69,7 +70,7 @@ public:
   unsigned
   get(Http2SettingsIdentifier id) const
   {
-    if (id < HTTP2_SETTINGS_MAX) {
+    if (0 < id && id < HTTP2_SETTINGS_MAX) {
       return this->settings[indexof(id)];
     } else {
       ink_assert(!"Bad Settings Identifier");
@@ -81,7 +82,7 @@ public:
   unsigned
   set(Http2SettingsIdentifier id, unsigned value)
   {
-    if (id < HTTP2_SETTINGS_MAX) {
+    if (0 < id && id < HTTP2_SETTINGS_MAX) {
       return this->settings[indexof(id)] = value;
     } else {
       ink_assert(!"Bad Settings Identifier");
@@ -95,7 +96,7 @@ private:
   static unsigned
   indexof(Http2SettingsIdentifier id)
   {
-    ink_assert(id < HTTP2_SETTINGS_MAX);
+    ink_assert(0 < id && id < HTTP2_SETTINGS_MAX);
 
     return id - 1;
   }
@@ -138,6 +139,9 @@ public:
   void
   destroy()
   {
+    if (shutdown_cont_event) {
+      shutdown_cont_event->cancel();
+    }
     cleanup_streams();
 
     mutex = nullptr; // magic happens - assigning to nullptr frees the ProxyMutex
@@ -147,6 +151,7 @@ public:
     ats_free(continued_buffer.iov_base);
 
     delete dependency_tree;
+    this->ua_session = nullptr;
   }
 
   // Event handlers
@@ -218,9 +223,9 @@ public:
   void schedule_stream(Http2Stream *stream);
   void send_data_frames_depends_on_priority();
   void send_data_frames(Http2Stream *stream);
-  Http2SendADataFrameResult send_a_data_frame(Http2Stream *stream, size_t &payload_length);
+  Http2SendDataFrameResult send_a_data_frame(Http2Stream *stream, size_t &payload_length);
   void send_headers_frame(Http2Stream *stream);
-  void send_push_promise_frame(Http2Stream *stream, URL &url);
+  void send_push_promise_frame(Http2Stream *stream, URL &url, const MIMEField *accept_encoding);
   void send_rst_stream_frame(Http2StreamId id, Http2ErrorCode ec);
   void send_settings_frame(const Http2ConnectionSettings &new_settings);
   void send_ping_frame(Http2StreamId id, uint8_t flag, const uint8_t *opaque_data);
@@ -261,10 +266,11 @@ public:
     shutdown_state = state;
   }
 
-private:
-  Http2ConnectionState(const Http2ConnectionState &);            // noncopyable
-  Http2ConnectionState &operator=(const Http2ConnectionState &); // noncopyable
+  // noncopyable
+  Http2ConnectionState(const Http2ConnectionState &) = delete;
+  Http2ConnectionState &operator=(const Http2ConnectionState &) = delete;
 
+private:
   unsigned _adjust_concurrent_stream();
 
   // NOTE: 'stream_list' has only active streams.
@@ -273,7 +279,7 @@ private:
   //   is CLOSED.
   //   If given Stream Identifier is not found in stream_list and it is greater
   //   than latest_streamid_in, the state of Stream is IDLE.
-  DLL<Http2Stream> stream_list;
+  Queue<Http2Stream> stream_list;
   Http2StreamId latest_streamid_in  = 0;
   Http2StreamId latest_streamid_out = 0;
   int stream_requests               = 0;
@@ -299,7 +305,8 @@ private:
   bool _scheduled                   = false;
   bool fini_received                = false;
   int recursion                     = 0;
-  Http2ShutdownState shutdown_state = NOT_INITIATED;
+  Http2ShutdownState shutdown_state = HTTP2_SHUTDOWN_NONE;
+  Event *shutdown_cont_event        = nullptr;
 };
 
 #endif // __HTTP2_CONNECTION_STATE_H__

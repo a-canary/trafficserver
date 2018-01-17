@@ -749,6 +749,7 @@ http_hdr_reason_lookup(unsigned status)
     HTTP_STATUS_ENTRY(100, Continue);            // [RFC2616]
     HTTP_STATUS_ENTRY(101, Switching Protocols); // [RFC2616]
     HTTP_STATUS_ENTRY(102, Processing);          // [RFC2518]
+    HTTP_STATUS_ENTRY(103, Early Hints);         // TODO: add RFC number
     // 103-199 Unassigned
     HTTP_STATUS_ENTRY(200, OK);                              // [RFC2616]
     HTTP_STATUS_ENTRY(201, Created);                         // [RFC2616]
@@ -1130,9 +1131,9 @@ validate_hdr_host(HTTPHdrImpl *hh)
     } else {
       int host_len         = 0;
       const char *host_val = host_field->value_get(&host_len);
-      ts::ConstBuffer addr, port, rest, host(host_val, host_len);
+      ts::string_view addr, port, rest, host(host_val, host_len);
       if (0 == ats_ip_parse(host, &addr, &port, &rest)) {
-        if (port) {
+        if (!port.empty()) {
           if (port.size() > 5) {
             return PARSE_RESULT_ERROR;
           }
@@ -1144,11 +1145,8 @@ validate_hdr_host(HTTPHdrImpl *hh)
         if (!validate_host_name(addr)) {
           return PARSE_RESULT_ERROR;
         }
-        while (rest && PARSE_RESULT_DONE == ret) {
-          if (!ParseRules::is_ws(*rest)) {
-            return PARSE_RESULT_ERROR;
-          }
-          ++rest;
+        if (PARSE_RESULT_DONE == ret && !std::all_of(rest.begin(), rest.end(), &ParseRules::is_ws)) {
+          return PARSE_RESULT_ERROR;
         }
       } else {
         ret = PARSE_RESULT_ERROR;
@@ -1544,6 +1542,7 @@ HTTPHdr::_fill_target_cache() const
 {
   URL *url = this->url_get();
   const char *port_ptr;
+  int port_len;
 
   m_target_in_url  = false;
   m_port_in_header = false;
@@ -1555,10 +1554,10 @@ HTTPHdr::_fill_target_cache() const
     m_port_in_header = 0 != url->port_get_raw();
     m_host_mime      = nullptr;
   } else if (nullptr !=
-             (m_host_mime = const_cast<HTTPHdr *>(this)->get_host_port_values(nullptr, &m_host_length, &port_ptr, nullptr))) {
+             (m_host_mime = const_cast<HTTPHdr *>(this)->get_host_port_values(nullptr, &m_host_length, &port_ptr, &port_len))) {
     m_port = 0;
     if (port_ptr) {
-      for (; is_digit(*port_ptr); ++port_ptr) {
+      for (; port_len > 0 && is_digit(*port_ptr); ++port_ptr, --port_len) {
         m_port = m_port * 10 + *port_ptr - '0';
       }
     }
@@ -1808,6 +1807,8 @@ ClassAllocator<HTTPCacheAlt> httpCacheAltAllocator("httpCacheAltAllocator");
 
 /*-------------------------------------------------------------------------
   -------------------------------------------------------------------------*/
+int constexpr HTTPCacheAlt::N_INTEGRAL_FRAG_OFFSETS;
+
 HTTPCacheAlt::HTTPCacheAlt()
   : m_magic(CACHE_ALT_MAGIC_ALIVE),
     m_writeable(1),

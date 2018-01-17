@@ -118,7 +118,7 @@ SocketManager::vector_io(int fd, struct iovec *vector, size_t count, int read_re
   int64_t current_request_bytes;
 
   for (n_vec = 0; n_vec < (int)count; n_vec += max_iovecs_per_request) {
-    current_count = min(max_iovecs_per_request, ((int)(count - n_vec)));
+    current_count = std::min(max_iovecs_per_request, ((int)(count - n_vec)));
     do {
       // coverity[tainted_data_argument]
       r = read_request ? ::readv(fd, &vector[n_vec], current_count) : ::writev(fd, &vector[n_vec], current_count);
@@ -172,6 +172,17 @@ SocketManager::recvfrom(int fd, void *buf, int size, int flags, struct sockaddr 
   do {
     r = ::recvfrom(fd, (char *)buf, size, flags, addr, addrlen);
     if (unlikely(r < 0))
+      r = -errno;
+  } while (r == -EINTR);
+  return r;
+}
+
+TS_INLINE int
+SocketManager::recvmsg(int fd, struct msghdr *m, int flags, void * /* pOLP ATS_UNUSED */)
+{
+  int r;
+  do {
+    if (unlikely((r = ::recvmsg(fd, m, flags)) < 0))
       r = -errno;
   } while (r == -EINTR);
   return r;

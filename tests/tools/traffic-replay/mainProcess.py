@@ -29,13 +29,25 @@ import subprocess
 import shlex
 from multiprocessing import Pool, Process
 from collections import deque
-from progress.bar import Bar
+#from progress.bar import Bar
+
+sys.path.append(
+    os.path.normpath(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            '..'
+        )
+    )
+)
+
 import sessionvalidation.sessionvalidation as sv
 import lib.result as result
 import WorkerTask
 import Scheduler
 import Config
 verbose = False
+
+
 def check_for_ats(hostname, port):
     ''' Checks to see if ATS is running on `hostname` and `port`
     If not running, this function will terminate the script
@@ -50,14 +62,15 @@ def check_for_ats(hostname, port):
         print('==========')
         sys.exit()
 # Note: this function can't handle multi-line (ie wrapped line) headers
-# Hopefully this isn't an issue because multi-line headers are deprecated now        
-        
-def main(path, replay_type, Bverbose):
+# Hopefully this isn't an issue because multi-line headers are deprecated now
+
+
+def main(path, replay_type, Bverbose, pHost=Config.proxy_host, pNSSLport=Config.proxy_nonssl_port, pSSL=Config.proxy_ssl_port):
     global verbose
     verbose = Bverbose
-    check_for_ats(Config.proxy_host, Config.proxy_nonssl_port)
+    check_for_ats(pHost, pNSSLport)
+    Config.proxy_host = pHost
+    Config.proxy_nonssl_port = pNSSLport
+    Config.proxy_ssl_port = pSSL
     proxy = {"http": "http://{0}:{1}".format(Config.proxy_host, Config.proxy_nonssl_port)}
-    Scheduler.LaunchWorkers(path,Config.nProcess,proxy,replay_type, Config.nThread)
-    
-    
-
+    Scheduler.LaunchWorkers(path, Config.nProcess, proxy, replay_type, Config.nThread)

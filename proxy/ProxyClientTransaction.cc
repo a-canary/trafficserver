@@ -25,7 +25,7 @@
 #include "http/HttpServerSession.h"
 #include "Plugin.h"
 
-#define DebugHttpTxn(fmt, ...) DebugSsn(this, "http_txn", fmt, __VA_ARGS__)
+#define HttpTxnDebug(fmt, ...) SsnDebug(this, "http_txn", fmt, __VA_ARGS__)
 
 ProxyClientTransaction::ProxyClientTransaction()
   : VConnection(nullptr),
@@ -48,7 +48,7 @@ ProxyClientTransaction::new_transaction()
   ink_release_assert(parent != nullptr);
   current_reader = HttpSM::allocate();
   current_reader->init();
-  DebugHttpTxn("[%" PRId64 "] Starting transaction %d using sm [%" PRId64 "]", parent->connection_id(),
+  HttpTxnDebug("[%" PRId64 "] Starting transaction %d using sm [%" PRId64 "]", parent->connection_id(),
                parent->get_transact_count(), current_reader->sm_id);
 
   PluginIdentity *pi = dynamic_cast<PluginIdentity *>(this->get_netvc());
@@ -63,7 +63,7 @@ ProxyClientTransaction::new_transaction()
 void
 ProxyClientTransaction::release(IOBufferReader *r)
 {
-  DebugHttpTxn("[%" PRId64 "] session released by sm [%" PRId64 "]", parent ? parent->connection_id() : 0,
+  HttpTxnDebug("[%" PRId64 "] session released by sm [%" PRId64 "]", parent ? parent->connection_id() : 0,
                current_reader ? current_reader->sm_id : 0);
 
   // Pass along the release to the session
@@ -81,10 +81,7 @@ ProxyClientTransaction::attach_server_session(HttpServerSession *ssession, bool 
 void
 ProxyClientTransaction::destroy()
 {
-  if (current_reader) {
-    current_reader->ua_session = nullptr;
-    current_reader             = nullptr;
-  }
+  current_reader = nullptr;
   this->mutex.clear();
 }
 

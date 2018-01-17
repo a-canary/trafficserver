@@ -16,30 +16,41 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Setup autoconf
+INSTALL="${WORKSPACE}/${BUILD_NUMBER}/install"
+
+# Optional settings
+CCACHE=""; WERROR=""; DEBUG=""; WCCP=""
+[ "1" == "$enable_ccache" ] && CCACHE="--enable-ccache"
+[ "1" == "$enable_werror" ] && WERROR="--enable-werror"
+[ "1" == "$enable_debug" ] && DEBUG="--enable-debug"
+[ "1" == "$enable_wccp" ] && WCCP="--enable-wccp"
+
+# Check for clang
+if [ "1" == "$enable_clang" ]; then
+    export CC="clang"
+    export CXX="clang++"
+    export CXXFLAGS="-Qunused-arguments -std=c++11"
+    export WITH_LIBCPLUSPLUS="yes"
+fi
+
+mkdir -p ${INSTALL}
 cd src
 autoreconf -if
 
-mkdir -p "${WORKSPACE}/${BUILD_NUMBER}/install"
-
-./configure --prefix="${WORKSPACE}/${BUILD_NUMBER}/install" \
+./configure --prefix="${INSTALL}" \
             --with-user=jenkins \
             --enable-experimental-plugins \
             --enable-example-plugins \
-            --enable-ccache \
-            --enable-debug \
-            --enable-werror
-
-# Test clang-format (but only where we have the local copy of clang-format, i.e. linux)
-if [ -d /usr/local/fmt ]; then
-    [ ! -d .git/fmt ] && cp -rp /usr/local/fmt .git
-    make clang-format
-    git diff --exit-code
-    [ "0" != "$?" ] && exit -1
-fi
+            ${CCACHE} \
+            ${WCCP} \
+            ${WERROR} \
+            ${DEBUG}
 
 # Build and run regressions
-make -j4
-make check VERBOSE=Y && make install
+${ATS_MAKE} ${ATS_MAKE_FLAGS} V=1 Q=
+${ATS_MAKE} check VERBOSE=Y V=1 && ${ATS_MAKE} install
 
-"${WORKSPACE}/${BUILD_NUMBER}/install/bin/traffic_server" -K -k -R 1
+${INSTALL}/bin/traffic_server -K -k -R 1
+[ "0" != "$?" ] && exit -1
+
+exit 0

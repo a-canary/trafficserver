@@ -163,7 +163,7 @@ LogConfig::read_configuration_variables()
   }
 
   ats_free(logfile_dir);
-  logfile_dir = RecConfigReadLogDir();
+  logfile_dir = ats_stringdup(RecConfigReadLogDir());
 
   if (access(logfile_dir, R_OK | W_OK | X_OK) == -1) {
     // Try 'system_root_dir/var/log/trafficserver' directory
@@ -277,7 +277,6 @@ LogConfig::LogConfig()
     m_space_used(0),
     m_partition_space_left((int64_t)UINT_MAX),
     m_log_collation_accept(nullptr),
-    m_pDir(nullptr),
     m_disk_full(false),
     m_disk_low(false),
     m_partition_full(false),

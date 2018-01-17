@@ -49,10 +49,11 @@ SocksEntry::init(Ptr<ProxyMutex> &m, SocksNetVC *vc, unsigned char socks_support
 
   socks_cmd = socks_support;
 
-  if (ver == SOCKS_DEFAULT_VERSION)
+  if (ver == SOCKS_DEFAULT_VERSION) {
     version = netProcessor.socks_conf_stuff->default_version;
-  else
+  } else {
     version = ver;
+  }
 
   SET_HANDLER(&SocksEntry::startEvent);
 
@@ -84,22 +85,26 @@ void
 SocksEntry::findServer()
 {
   nattempts++;
+  unsigned int fail_threshold = server_params->policy.FailThreshold;
+  unsigned int retry_time     = server_params->policy.ParentRetryTime;
 
 #ifdef SOCKS_WITH_TS
   if (nattempts == 1) {
     ink_assert(server_result.result == PARENT_UNDEFINED);
-    server_params->findParent(&req_data, &server_result);
+    server_params->findParent(&req_data, &server_result, fail_threshold, retry_time);
   } else {
     socks_conf_struct *conf = netProcessor.socks_conf_stuff;
-    if ((nattempts - 1) % conf->per_server_connection_attempts)
+    if ((nattempts - 1) % conf->per_server_connection_attempts) {
       return; // attempt again
+    }
 
-    server_params->markParentDown(&server_result);
+    server_params->markParentDown(&server_result, fail_threshold, retry_time);
 
-    if (nattempts > conf->connection_attempts)
+    if (nattempts > conf->connection_attempts) {
       server_result.result = PARENT_FAIL;
-    else
-      server_params->nextParent(&req_data, &server_result);
+    } else {
+      server_params->nextParent(&req_data, &server_result, fail_threshold, retry_time);
+    }
   }
 
   switch (server_result.result) {
@@ -116,6 +121,7 @@ SocksEntry::findServer()
 
   default:
     ink_assert(!"Unexpected event");
+  // fallthrough
   case PARENT_DIRECT:
   case PARENT_FAIL:
     memset(&server_addr, 0, sizeof(server_addr));
@@ -140,16 +146,19 @@ SocksEntry::free()
   // so acquiring a lock shouldn't fail
   ink_release_assert(lock.is_locked());
 
-  if (timeout)
+  if (timeout) {
     timeout->cancel(this);
+  }
 
 #ifdef SOCKS_WITH_TS
-  if (!lerrno && netVConnection && server_result.retry)
+  if (!lerrno && netVConnection && server_result.retry) {
     server_params->markParentUp(&server_result);
+  }
 #endif
 
-  if ((action_.cancelled || lerrno) && netVConnection)
+  if ((action_.cancelled || lerrno) && netVConnection) {
     netVConnection->do_io_close();
+  }
 
   if (!action_.cancelled) {
     if (lerrno || !netVConnection) {
@@ -182,8 +191,9 @@ SocksEntry::startEvent(int event, void *data)
   if (event == NET_EVENT_OPEN) {
     netVConnection = (SocksNetVC *)data;
 
-    if (version == SOCKS5_VERSION)
+    if (version == SOCKS5_VERSION) {
       auth_handler = &socks5BasicAuthHandler;
+    }
 
     SET_HANDLER((SocksEntryHandler)&SocksEntry::mainEvent);
     mainEvent(NET_EVENT_OPEN, data);
@@ -308,11 +318,11 @@ SocksEntry::mainEvent(int event, void *data)
 
     buf->reset(); // Use the same buffer for a read now
 
-    if (auth_handler)
+    if (auth_handler) {
       n_bytes = invokeSocksAuthHandler(auth_handler, SOCKS_AUTH_WRITE_COMPLETE, nullptr);
-    else if (socks_cmd == NORMAL_SOCKS)
+    } else if (socks_cmd == NORMAL_SOCKS) {
       n_bytes = (version == SOCKS5_VERSION) ? SOCKS5_REP_LEN : SOCKS4_REP_LEN;
-    else {
+    } else {
       Debug("Socks", "Tunnelling the connection");
       // let the client handle the response
       free();
@@ -359,8 +369,9 @@ SocksEntry::mainEvent(int event, void *data)
       }
     }
 
-    if (ret == EVENT_CONT)
+    if (ret == EVENT_CONT) {
       break;
+    }
   // Fall Through
   case VC_EVENT_READ_COMPLETE:
     if (timeout) {
@@ -387,8 +398,9 @@ SocksEntry::mainEvent(int event, void *data)
       if (version == SOCKS5_VERSION) {
         success = (p[0] == SOCKS5_VERSION && p[1] == SOCKS5_REQ_GRANTED);
         Debug("Socks", "received reply of length %" PRId64 " addr type %d", ((VIO *)data)->ndone, (int)p[3]);
-      } else
+      } else {
         success = (p[0] == 0 && p[1] == SOCKS4_REQ_GRANTED);
+      }
 
       // ink_assert(*(p) == 0);
       if (!success) { // SOCKS request failed
@@ -414,9 +426,9 @@ SocksEntry::mainEvent(int event, void *data)
      This is server_connect_timeout. So we treat this as server being
      down.
      Should cancel any pending connect() action. Important on windows
+  */
+  // fallthrough
 
-     fall through
-   */
   case VC_EVENT_ERROR:
     /*This is mostly ECONNREFUSED on Unix */
     SET_HANDLER(&SocksEntry::startEvent);
@@ -522,8 +534,9 @@ error:
 
   socks_conf_stuff->socks_needed   = 0;
   socks_conf_stuff->accept_enabled = 0;
-  if (socks_config_fd >= 0)
+  if (socks_config_fd >= 0) {
     ::close(socks_config_fd);
+  }
 }
 
 int
@@ -542,11 +555,13 @@ loadSocksAuthInfo(int fd, socks_conf_struct *socks_stuff)
   bool end_of_file = false;
   do {
     int n = 0, rc;
-    while (((rc = read(fd, &c, 1)) == 1) && (c != '\n') && (n < 254))
+    while (((rc = read(fd, &c, 1)) == 1) && (c != '\n') && (n < 254)) {
       line[n++] = c;
-    if (rc <= 0)
+    }
+    if (rc <= 0) {
       end_of_file = true;
-    line[n]       = '\0';
+    }
+    line[n] = '\0';
 
     // coverity[secure_coding]
     rc = sscanf(line, " auth u %255s %255s ", user_name, passwd);
@@ -585,8 +600,9 @@ socks5BasicAuthHandler(int event, unsigned char *p, void (**h_ptr)(void))
     p[ret++] = SOCKS5_VERSION;        // version
     p[ret++] = (pass_phrase) ? 2 : 1; //#Methods
     p[ret++] = 0;                     // no authentication
-    if (pass_phrase)
+    if (pass_phrase) {
       p[ret++] = 2;
+    }
 
     break;
 
@@ -612,8 +628,9 @@ socks5BasicAuthHandler(int event, unsigned char *p, void (**h_ptr)(void))
                          "when not supplied as an option");
           ret    = -1;
           *h_ptr = nullptr;
-        } else
+        } else {
           *(SocksAuthHandler *)h_ptr = &socks5PasswdAuthHandler;
+        }
 
         break;
 

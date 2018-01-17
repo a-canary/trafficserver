@@ -48,6 +48,7 @@
 struct RequestData;
 struct matcher_line;
 struct ParentResult;
+struct OverridableHttpConfigParams;
 class ParentRecord;
 class ParentSelectionStrategy;
 
@@ -133,9 +134,10 @@ public:
 
   const char *scheme = nullptr;
   // private:
+  void PreProcessParents(const char *val, const int line_num, char *buf, size_t len);
   const char *ProcessParents(char *val, bool isPrimary);
   bool ignore_query                                                  = false;
-  volatile uint32_t rr_next                                          = 0;
+  uint32_t rr_next                                                   = 0;
   bool go_direct                                                     = true;
   bool parent_is_proxy                                               = true;
   ParentSelectionStrategy *selection_strategy                        = nullptr;
@@ -258,6 +260,7 @@ private:
   friend class ParentRoundRobin;
   friend class ParentConfigParams;
   friend class ParentRecord;
+  friend class ParentSelectionStrategy;
 };
 
 struct ParentSelectionPolicy {
@@ -272,30 +275,24 @@ struct ParentSelectionPolicy {
 class ParentSelectionStrategy
 {
 public:
-  // void selectParent(const ParentSelectionPolicy *policy, bool firstCall, ParentResult *result, RequestData *rdata)
+  //
+  // Return the pRecord.
+  virtual pRecord *getParents(ParentResult *result) = 0;
+  // void selectParent(bool firstCall, ParentResult *result, RequestData *rdata, unsigned int fail_threshold, unsigned int
+  // retry_time)
   //
   // The implementation parent lookup.
   //
-  virtual void selectParent(const ParentSelectionPolicy *policy, bool firstCall, ParentResult *result, RequestData *rdata) = 0;
-
-  // void markParentDown(const ParentSelectionPolicy *policy, ParentResult *result)
-  //
-  //    Marks the parent pointed to by result as down
-  //
-  virtual void markParentDown(const ParentSelectionPolicy *policy, ParentResult *result) = 0;
+  virtual void selectParent(bool firstCall, ParentResult *result, RequestData *rdata, unsigned int fail_threshold,
+                            unsigned int retry_time) = 0;
 
   // uint32_t numParents(ParentResult *result);
   //
   // Returns the number of parent records in a strategy.
   //
   virtual uint32_t numParents(ParentResult *result) const = 0;
-
-  // void markParentUp
-  //
-  //    After a successful retry, http calls this function
-  //      to clear the bits indicating the parent is down
-  //
-  virtual void markParentUp(ParentResult *result) = 0;
+  void markParentDown(ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);
+  void markParentUp(ParentResult *result);
 
   // virtual destructor.
   virtual ~ParentSelectionStrategy(){};
@@ -308,26 +305,35 @@ public:
   ~ParentConfigParams(){};
 
   bool apiParentExists(HttpRequestData *rdata);
-  void findParent(HttpRequestData *rdata, ParentResult *result);
-  void nextParent(HttpRequestData *rdata, ParentResult *result);
+  void findParent(HttpRequestData *rdata, ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);
+  void nextParent(HttpRequestData *rdata, ParentResult *result, unsigned int fail_threshold, unsigned int retry_time);
   bool parentExists(HttpRequestData *rdata);
 
   // implementation of functions from ParentSelectionStrategy.
   void
-  selectParent(bool firstCall, ParentResult *result, RequestData *rdata)
+  selectParent(bool firstCall, ParentResult *result, RequestData *rdata, unsigned int fail_threshold, unsigned int retry_time)
   {
     if (!result->is_api_result()) {
       ink_release_assert(result->rec->selection_strategy != NULL);
-      return result->rec->selection_strategy->selectParent(&policy, firstCall, result, rdata);
+      return result->rec->selection_strategy->selectParent(firstCall, result, rdata, fail_threshold, retry_time);
     }
   }
 
   void
-  markParentDown(ParentResult *result)
+  markParentDown(ParentResult *result, unsigned int fail_threshold, unsigned int retry_time)
   {
     if (!result->is_api_result()) {
       ink_release_assert(result->rec->selection_strategy != NULL);
-      result->rec->selection_strategy->markParentDown(&policy, result);
+      result->rec->selection_strategy->markParentDown(result, fail_threshold, retry_time);
+    }
+  }
+
+  void
+  markParentUp(ParentResult *result)
+  {
+    if (!result->is_api_result()) {
+      ink_release_assert(result != NULL);
+      result->rec->selection_strategy->markParentUp(result);
     }
   }
 
@@ -339,15 +345,6 @@ public:
     } else {
       ink_release_assert(result->rec->selection_strategy != NULL);
       return result->rec->selection_strategy->numParents(result);
-    }
-  }
-
-  void
-  markParentUp(ParentResult *result)
-  {
-    if (!result->is_api_result()) {
-      ink_release_assert(result != NULL);
-      result->rec->selection_strategy->markParentUp(result);
     }
   }
 

@@ -88,7 +88,7 @@ sdk_sanity_check_iocore_structure(void *data)
 
 // From InkAPI.cc
 TSReturnCode sdk_sanity_check_continuation(TSCont cont);
-TSReturnCode sdk_sanity_check_null_ptr(void *ptr);
+TSReturnCode sdk_sanity_check_null_ptr(void const *ptr);
 
 ////////////////////////////////////////////////////////////////////
 //
@@ -98,7 +98,7 @@ TSReturnCode sdk_sanity_check_null_ptr(void *ptr);
 struct INKThreadInternal : public EThread {
   INKThreadInternal() : EThread(DEDICATED, -1)
   {
-    ink_mutex_init(&completion.lock, nullptr);
+    ink_mutex_init(&completion.lock);
     ink_cond_init(&completion.signal);
   }
 
@@ -114,7 +114,7 @@ struct INKThreadInternal : public EThread {
   struct {
     ink_mutex lock;
     ink_cond signal;
-    bool done;
+    bool done = false;
   } completion;
 };
 
@@ -143,6 +143,7 @@ TSThread
 TSThreadCreate(TSThreadFunc func, void *data)
 {
   INKThreadInternal *thread;
+  ink_thread tid = 0;
 
   thread = new INKThreadInternal;
 
@@ -152,7 +153,8 @@ TSThreadCreate(TSThreadFunc func, void *data)
   thread->func = func;
   thread->data = data;
 
-  if (!(ink_thread_create(ink_thread_trampoline, (void *)thread, 1, 0, nullptr))) {
+  ink_thread_create(&tid, ink_thread_trampoline, (void *)thread, 1, 0, nullptr);
+  if (!tid) {
     return (TSThread) nullptr;
   }
 

@@ -23,15 +23,15 @@ library_includedir=$(includedir)/ts
 library_include_HEADERS = apidefs.h
 
 noinst_PROGRAMS = mkdfa CompileParseRules
-check_PROGRAMS = test_tsutil test_arena test_atomic test_freelist test_geometry test_List test_Map test_Vec test_X509HostnameValidator test_MemView test_Scalar
+check_PROGRAMS = test_tsutil test_arena test_atomic test_freelist test_geometry test_List test_Map test_Vec test_X509HostnameValidator test_Scalar test_tslib
 
 TESTS_ENVIRONMENT = LSAN_OPTIONS=suppressions=suppression.txt
 
 TESTS = $(check_PROGRAMS)
 
-AM_CPPFLAGS += -I$(abs_top_srcdir)/lib
-
 lib_LTLIBRARIES = libtsutil.la
+
+AM_CPPFLAGS += -I$(abs_top_srcdir)/lib
 
 libtsutil_la_LDFLAGS = -no-undefined -version-info @TS_LIBTOOL_VERSION@
 libtsutil_la_LIBADD = \
@@ -72,6 +72,7 @@ libtsutil_la_SOURCES = \
   HashMD5.h \
   HashSip.cc \
   HashSip.h \
+  History.h \
   HostLookup.cc \
   HostLookup.h \
   hugepages.cc \
@@ -131,6 +132,7 @@ libtsutil_la_SOURCES = \
   ink_sock.h \
   ink_sprintf.cc \
   ink_sprintf.h \
+	ink_std_compat.h \
   ink_stack_trace.cc \
   ink_stack_trace.h \
   ink_string.cc \
@@ -160,7 +162,6 @@ libtsutil_la_SOURCES = \
   Map.h \
   MatcherUtils.cc \
   MatcherUtils.h \
-  MemView.h MemView.cc \
   MMH.cc \
   MMH.h \
   ParseRules.cc \
@@ -176,20 +177,23 @@ libtsutil_la_SOURCES = \
   Regression.cc \
   Regression.h \
   Result.h \
+  runroot.cc \
+  runroot.h \
   signals.cc \
   signals.h \
   SimpleTokenizer.h \
   SourceLocation.cc \
   SourceLocation.h \
+  string_view.h \
+  BufferWriter.h \
   TestBox.h \
   TextBuffer.cc \
   TextBuffer.h \
+  TextView.h TextView.cc \
   Tokenizer.cc \
   Tokenizer.h \
   Trie.h \
   TsBuffer.h \
-  Vec.cc \
-  Vec.h \
   Version.cc \
   X509HostnameValidator.cc \
   X509HostnameValidator.h
@@ -232,15 +236,28 @@ test_X509HostnameValidator_LDADD = libtsutil.la @LIBTCL@ @LIBPCRE@ @OPENSSL_LIBS
 
 test_tsutil_LDADD = libtsutil.la @LIBTCL@ @LIBPCRE@
 test_tsutil_SOURCES = \
+	test_History.cc \
 	test_PriorityQueue.cc \
 	test_Ptr.cc \
 	test_Regex.cc \
 	tests.cc
 
-test_MemView_SOURCES = test_MemView.cc
-test_MemView_LDADD = libtsutil.la
-
 test_Scalar_SOURCES = test_Scalar.cc Scalar.h
+
+test_tslib_CPPFLAGS = $(AM_CPPFLAGS)\
+	-I$(abs_top_srcdir)/tests/include
+
+# add you catch based test file here for tslib
+test_tslib_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS)
+test_tslib_LDADD = libtsutil.la
+test_tslib_SOURCES = \
+	unit-tests/unit_test_main.cc \
+	unit-tests/test_BufferWriter.cc \
+	unit-tests/test_ink_inet.cc \
+	unit-tests/test_IpMap.cc \
+	unit-tests/test_layout.cc \
+	unit-tests/test_string_view.cc \
+	unit-tests/test_TextView.cc
 
 CompileParseRules_SOURCES = CompileParseRules.cc
 

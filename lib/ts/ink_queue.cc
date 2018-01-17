@@ -135,8 +135,9 @@ ink_freelist_init(InkFreeList **fl, const char *name, uint32_t type_size, uint32
   // It is never useful to have alignment requirement looser than a page size
   // so clip it. This makes the item alignment checks in the actual allocator simpler.
   f->alignment = alignment;
-  if (f->alignment > ats_pagesize())
+  if (f->alignment > ats_pagesize()) {
     f->alignment = ats_pagesize();
+  }
   Debug(DEBUG_TAG "_init", "<%s> Alignment request/actual (%" PRIu32 "/%" PRIu32 ")", name, alignment, f->alignment);
   // Make sure we align *all* the objects in the allocation, not just the first one
   f->type_size = INK_ALIGN(type_size, f->alignment);
@@ -281,7 +282,7 @@ ink_freelist_free(InkFreeList *f, void *item)
 static void
 freelist_free(InkFreeList *f, void *item)
 {
-  volatile void **adr_of_next = (volatile void **)ADDRESS_OF_NEXT(item, 0);
+  void **adr_of_next = (void **)ADDRESS_OF_NEXT(item, 0);
   head_p h;
   head_p item_pair;
   int result = 0;
@@ -318,10 +319,16 @@ freelist_free(InkFreeList *f, void *item)
 static void
 malloc_free(InkFreeList *f, void *item)
 {
-  if (f->alignment)
+  if (f->alignment) {
+#ifdef MADV_DODUMP
+    if (f->advice && (INK_ALIGN((uint64_t)item, ats_pagesize()) == (uint64_t)item)) {
+      ats_madvise((caddr_t)item, INK_ALIGN(f->type_size, f->alignment), MADV_DODUMP);
+    }
+#endif
     ats_memalign_free(item);
-  else
+  } else {
     ats_free(item);
+  }
 }
 
 void
@@ -336,7 +343,7 @@ ink_freelist_free_bulk(InkFreeList *f, void *head, void *tail, size_t num_item)
 static void
 freelist_bulkfree(InkFreeList *f, void *head, void *tail, size_t num_item)
 {
-  volatile void **adr_of_next = (volatile void **)ADDRESS_OF_NEXT(tail, 0);
+  void **adr_of_next = (void **)ADDRESS_OF_NEXT(tail, 0);
   head_p h;
   head_p item_pair;
   int result = 0;
@@ -387,6 +394,11 @@ malloc_bulkfree(InkFreeList *f, void *head, void *tail, size_t num_item)
   if (f->alignment) {
     for (size_t i = 0; i < num_item && item; ++i, item = next) {
       next = *(void **)item; // find next item before freeing current item
+#ifdef MADV_DODUMP
+      if (f->advice && (INK_ALIGN((uint64_t)item, ats_pagesize()) == (uint64_t)item)) {
+        ats_madvise((caddr_t)item, INK_ALIGN(f->type_size, f->alignment), MADV_DODUMP);
+      }
+#endif
       ats_memalign_free(item);
     }
   } else {
@@ -413,8 +425,9 @@ void
 ink_freelists_dump_baselinerel(FILE *f)
 {
   ink_freelist_list *fll;
-  if (f == nullptr)
+  if (f == nullptr) {
     f = stderr;
+  }
 
   fprintf(f, "     allocated      |       in-use       |  count  | type size  |   free list name\n");
   fprintf(f, "  relative to base  |  relative to base  |         |            |                 \n");
@@ -438,8 +451,9 @@ void
 ink_freelists_dump(FILE *f)
 {
   ink_freelist_list *fll;
-  if (f == nullptr)
+  if (f == nullptr) {
     f = stderr;
+  }
 
   fprintf(f, "     Allocated      |        In-Use      | Type Size  |   Free List Name\n");
   fprintf(f, "--------------------|--------------------|------------|----------------------------------\n");
@@ -475,8 +489,9 @@ ink_atomiclist_pop(InkAtomicList *l)
   int result = 0;
   do {
     INK_QUEUE_LD(item, l->head);
-    if (TO_PTR(FREELIST_POINTER(item)) == nullptr)
+    if (TO_PTR(FREELIST_POINTER(item)) == nullptr) {
       return nullptr;
+    }
     SET_FREELIST_POINTER_VERSION(next, *ADDRESS_OF_NEXT(TO_PTR(FREELIST_POINTER(item)), l->offset), FREELIST_VERSION(item) + 1);
     result = ink_atomic_cas(&l->head.data, item.data, next.data);
   } while (result == 0);
@@ -495,8 +510,9 @@ ink_atomiclist_popall(InkAtomicList *l)
   int result = 0;
   do {
     INK_QUEUE_LD(item, l->head);
-    if (TO_PTR(FREELIST_POINTER(item)) == nullptr)
+    if (TO_PTR(FREELIST_POINTER(item)) == nullptr) {
       return nullptr;
+    }
     SET_FREELIST_POINTER_VERSION(next, FROM_PTR(nullptr), FREELIST_VERSION(item) + 1);
     result = ink_atomic_cas(&l->head.data, item.data, next.data);
   } while (result == 0);
@@ -516,11 +532,11 @@ ink_atomiclist_popall(InkAtomicList *l)
 void *
 ink_atomiclist_push(InkAtomicList *l, void *item)
 {
-  volatile void **adr_of_next = (volatile void **)ADDRESS_OF_NEXT(item, l->offset);
+  void **adr_of_next = (void **)ADDRESS_OF_NEXT(item, l->offset);
   head_p head;
   head_p item_pair;
-  int result       = 0;
-  volatile void *h = nullptr;
+  int result = 0;
+  void *h    = nullptr;
   do {
     INK_QUEUE_LD(head, l->head);
     h            = FREELIST_POINTER(head);

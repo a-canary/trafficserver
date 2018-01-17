@@ -57,12 +57,13 @@ public:
   // Implement ProxyClientSession interface.
   virtual void destroy();
   virtual void free();
+  void release_transaction();
 
   virtual void
   start()
   {
-    // Create a new transaction object and kick it off
-    this->new_transaction();
+    // Troll for data to get a new transaction
+    this->release(&trans);
   }
 
   void new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOBufferReader *reader, bool backdoor);
@@ -208,16 +209,14 @@ private:
   MIOBuffer *read_buffer;
   IOBufferReader *sm_reader;
 
-  /*
-   * Volatile should not be necessary, but there appears to be a bug in the 4.9 rhel gcc
-   * compiler that was using an old version of read_state to make decisions in really_destroy
-   */
-  volatile C_Read_State read_state;
+  C_Read_State read_state;
 
   VIO *ka_vio;
   VIO *slave_ka_vio;
 
   HttpServerSession *bound_ss;
+
+  int released_transactions;
 
 public:
   // Link<Http1ClientSession> debug_link;

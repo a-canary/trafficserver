@@ -24,6 +24,7 @@ import sessionvalidation.request as request
 import sessionvalidation.response as response
 
 valid_HTTP_request_methods = ['GET', 'POST', 'HEAD']
+G_CUSTOM_METHODS = False
 G_VERBOSE_LOG = True
 
 
@@ -52,7 +53,8 @@ class SessionValidator(object):
         dropped and the filename is stored inside _bad_sessions
         '''
 
-        log_filenames = [os.path.join(self._json_log_dir, f) for f in os.listdir(self._json_log_dir) if os.path.isfile(os.path.join(self._json_log_dir, f))]
+        log_filenames = [os.path.join(self._json_log_dir, f) for f in os.listdir(
+            self._json_log_dir) if os.path.isfile(os.path.join(self._json_log_dir, f))]
 
         for fname in log_filenames:
             with open(fname) as f:
@@ -71,10 +73,10 @@ class SessionValidator(object):
                     session_version = sesh['version']
                     session_txns = list()
                     for txn in sesh['txns']:
-                        #print("PERSIA____________________________________________________________",txn)
+                        # print("PERSIA____________________________________________________________",txn)
                         # create transaction Request object
                         txn_request = txn['request']
-                       
+
                         txn_request_body = ''
                         if 'body' in txn_request:
                             txn_request_body = txn_request['body']
@@ -89,7 +91,7 @@ class SessionValidator(object):
                         # create Transaction object
                         txn_obj = transaction.Transaction(txn_request_obj, txn_response_obj, txn['uuid'])
                         session_txns.append(txn_obj)
-                        #print(txn_request['timestamp'])
+                        # print(txn_request['timestamp'])
                     session_obj = session.Session(fname, session_version, session_timestamp, session_txns)
 
                 except KeyError as e:
@@ -99,7 +101,6 @@ class SessionValidator(object):
                     continue
 
                 self._sessions.append(session_obj)
-
 
     def validate(self):
         ''' Prunes out all the invalid Sessions in _sessions '''
@@ -113,7 +114,6 @@ class SessionValidator(object):
                 self._bad_sessions.append(sesh._filename)
 
         self._sessions = good_sessions
-
 
     @staticmethod
     def validateSingleSession(sesh):
@@ -138,7 +138,7 @@ class SessionValidator(object):
 
             # validate Transactions now
             for txn in sesh.getTransactionIter():
-                if not SessionValidator.validateSingleTransaction(txn): 
+                if not SessionValidator.validateSingleTransaction(txn):
                     retval = False
 
         except ValueError as e:
@@ -146,7 +146,6 @@ class SessionValidator(object):
             retval = False
 
         return retval
-
 
     @staticmethod
     def validateSingleTransaction(txn):
@@ -157,6 +156,7 @@ class SessionValidator(object):
         retval = True
 
         #valid_HTTP_request_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'TRACE', 'OPTIONS', 'CONNECT', 'PATCH']
+        custom_HTTP_request_methods = ['PULL']  # transaction monitor plugin for ATS may have custom methods
         # we can later uncomment the previous line to support more HTTP methods
         valid_HTTP_versions = ['HTTP/1.0', 'HTTP/1.1', 'HTTP/2.0']
 
@@ -172,8 +172,9 @@ class SessionValidator(object):
                 _verbose_print("invalid transaction request timestamp")
                 retval = False
             elif txn_req.getHeaders().split()[0] not in valid_HTTP_request_methods:
-                _verbose_print("invalid HTTP method for transaction {0}".format( txn_req.getHeaders().split()[0]))
-                retval = False
+                if G_CUSTOM_METHODS and txn_req.getHeaders().split()[0] not in custom_HTTP_request_methods:
+                    _verbose_print("invalid HTTP method for transaction {0}".format(txn_req.getHeaders().split()[0]))
+                    retval = False
             elif not txn_req.getHeaders().endswith("\r\n\r\n"):
                 _verbose_print("transaction request headers didn't end with \\r\\n\\r\\n")
                 retval = False
@@ -192,7 +193,7 @@ class SessionValidator(object):
                     if host_header_no_space or host_header_with_space:
                         found_host = False
             if not found_host:
-                print("missing host",txn_req)
+                print("missing host", txn_req)
                 _verbose_print("transaction request Host header doesn't have specified host")
                 retval = False
 
@@ -200,7 +201,6 @@ class SessionValidator(object):
             if "127.0.0.1" in txn_req.getHeaders() or "localhost" in txn_req.getHeaders():
                 _verbose_print("transaction request Host is localhost, we must reject because ATS ignores remap rules for localhost requests")
                 retval = False
-
 
             # now validate response
             if not txn_resp:
@@ -227,7 +227,6 @@ class SessionValidator(object):
                 _verbose_print("transaction response was 3xx and had a body")
                 retval = False
 
-
         except ValueError as e:
             _verbose_print("most likely an invalid transaction timestamp")
             retval = False
@@ -238,29 +237,26 @@ class SessionValidator(object):
 
         return retval
 
-
     def getSessionList(self):
         ''' Returns the list of Session objects '''
         return self._sessions
-
 
     def getSessionIter(self):
         ''' Returns an iterator of the Session objects '''
         return iter(self._sessions)
 
-
     def getBadSessionList(self):
         ''' Returns a list of bad session filenames (list of strings) '''
         return self._bad_sessions
-
 
     def getBadSessionListIter(self):
         ''' Returns an iterator of bad session filenames (iterator of strings) '''
         return iter(self._bad_sessions)
 
-
-    def __init__(self, json_log_dir):
+    def __init__(self, json_log_dir, allow_custom=False):
         global valid_HTTP_request_methods
+        global G_CUSTOM_METHODS
+        G_CUSTOM_METHODS = allow_custom
         self._json_log_dir = json_log_dir
         self._bad_sessions = list()   # list of filenames
         self._sessions = list()       # list of _good_ session objects

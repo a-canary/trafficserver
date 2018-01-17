@@ -97,9 +97,9 @@ struct LogBufferHeader {
 
 union LB_State {
   LB_State() : ival(0) {}
-  LB_State(volatile LB_State &vs) { ival = vs.ival; }
+  LB_State(LB_State &vs) { ival = vs.ival; }
   LB_State &
-  operator=(volatile LB_State &vs)
+  operator=(LB_State &vs)
   {
     ival = vs.ival;
     return *this;
@@ -183,15 +183,15 @@ public:
   LINK(LogBuffer, link);
 
   // static variables
-  static vint32 M_ID;
+  static int32_t M_ID;
 
   // static functions
   static size_t max_entry_bytes();
   static int to_ascii(LogEntryHeader *entry, LogFormatType type, char *buf, int max_len, const char *symbol_str, char *printf_str,
-                      unsigned buffer_version, const char *alt_format = NULL);
+                      unsigned buffer_version, const char *alt_format = nullptr);
   static int resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char *read_from, char *write_to, int write_to_len,
-                                  long timestamp, long timestamp_us, unsigned buffer_version, LogFieldList *alt_fieldlist = NULL,
-                                  char *alt_printf_str = NULL);
+                                  long timestamp, long timestamp_us, unsigned buffer_version, LogFieldList *alt_fieldlist = nullptr,
+                                  char *alt_printf_str = nullptr);
 
   static void
   destroy(LogBuffer *lb)
@@ -222,8 +222,14 @@ private:
 
   uint32_t m_id; // unique buffer id (for debugging)
 public:
-  volatile LB_State m_state; // buffer state
-  volatile int m_references; // oustanding checkout_write references.
+  LB_State m_state; // buffer state
+  int m_references; // oustanding checkout_write references.
+
+  // noncopyable
+  // -- member functions that are not allowed --
+  LogBuffer(const LogBuffer &rhs) = delete;
+  LogBuffer &operator=(const LogBuffer &rhs) = delete;
+
 private:
   // private functions
   size_t _add_buffer_header();
@@ -232,8 +238,6 @@ private:
 
   // -- member functions that are not allowed --
   LogBuffer();
-  LogBuffer(const LogBuffer &rhs);
-  LogBuffer &operator=(const LogBuffer &rhs);
 
   friend class LogBufferIterator;
 };
@@ -280,6 +284,11 @@ public:
 
   LogEntryHeader *next();
 
+  // noncopyable
+  // -- member functions not allowed --
+  LogBufferIterator(const LogBufferIterator &) = delete;
+  LogBufferIterator &operator=(const LogBufferIterator &) = delete;
+
 private:
   bool m_in_network_order;
   char *m_next;
@@ -288,8 +297,6 @@ private:
 
   // -- member functions not allowed --
   LogBufferIterator();
-  LogBufferIterator(const LogBufferIterator &);
-  LogBufferIterator &operator=(const LogBufferIterator &);
 };
 
 /*-------------------------------------------------------------------------

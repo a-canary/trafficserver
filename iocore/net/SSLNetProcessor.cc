@@ -26,6 +26,7 @@
 #include "I_RecHttp.h"
 #include "P_SSLUtils.h"
 #include "P_OCSPStapling.h"
+#include "P_SSLSNI.h"
 
 //
 // Global Data
@@ -33,7 +34,7 @@
 
 SSLNetProcessor ssl_NetProcessor;
 NetProcessor &sslNetProcessor = ssl_NetProcessor;
-
+SNIActionPerformer sni_action_performer;
 #ifdef HAVE_OPENSSL_OCSP_STAPLING
 struct OCSPContinuation : public Continuation {
   int
@@ -59,9 +60,12 @@ SSLNetProcessor::start(int, size_t stacksize)
   // This initialization order matters ...
   SSLInitializeLibrary();
   SSLConfig::startup();
+  SNIConfig::startup();
 
-  if (!SSLCertificateConfig::startup())
+  if (!SSLCertificateConfig::startup()) {
     return -1;
+  }
+  SSLTicketKeyConfig::startup();
 
   // Acquire a SSLConfigParams instance *after* we start SSL up.
   // SSLConfig::scoped_config params;
@@ -71,7 +75,7 @@ SSLNetProcessor::start(int, size_t stacksize)
 
 #ifdef HAVE_OPENSSL_OCSP_STAPLING
   if (SSLConfigParams::ssl_ocsp_enabled) {
-    EventType ET_OCSP = eventProcessor.spawn_event_threads(1, "ET_OCSP", stacksize);
+    EventType ET_OCSP = eventProcessor.spawn_event_threads("ET_OCSP", 1, stacksize);
     eventProcessor.schedule_every(new OCSPContinuation(), HRTIME_SECONDS(SSLConfigParams::ssl_ocsp_update_period), ET_OCSP);
   }
 #endif /* HAVE_OPENSSL_OCSP_STAPLING */

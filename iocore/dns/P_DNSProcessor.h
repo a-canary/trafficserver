@@ -62,7 +62,7 @@ extern unsigned int dns_sequence_number;
 // Constants
 //
 
-#define DNS_PERIOD HRTIME_MSECONDS(-100)
+#define DNS_PERIOD HRTIME_MSECONDS(100)
 #define DNS_DELAY_PERIOD HRTIME_MSECONDS(10)
 #define DNS_SEQUENCE_NUMBER_RESTART_OFFSET 4000
 #define DNS_PRIMARY_RETRY_PERIOD HRTIME_SECONDS(5)
@@ -188,7 +188,8 @@ struct DNSHandler : public Continuation {
   IpEndpoint local_ipv4; ///< Local V4 address if set.
   int ifd[MAX_NAMED];
   int n_con;
-  DNSConnection con[MAX_NAMED];
+  DNSConnection tcpcon[MAX_NAMED];
+  DNSConnection udpcon[MAX_NAMED];
   Queue<DNSEntry> entries;
   Queue<DNSConnection> triggered;
   int in_flight;
@@ -250,7 +251,8 @@ struct DNSHandler : public Continuation {
   int startEvent_sdns(int event, Event *e);
   int mainEvent(int event, Event *e);
 
-  void open_con(sockaddr const *addr, bool failed = false, int icon = 0);
+  void open_cons(sockaddr const *addr, bool failed = false, int icon = 0);
+  void open_con(sockaddr const *addr, bool failed = false, int icon = 0, bool over_tcp = false);
   void failover();
   void rr_failure(int ndx);
   void recover();
@@ -329,7 +331,8 @@ DNSHandler::DNSHandler()
     failover_soon_number[i]    = 0;
     crossed_failover_number[i] = 0;
     ns_down[i]                 = 1;
-    con[i].handler             = this;
+    tcpcon[i].handler          = this;
+    udpcon[i].handler          = this;
   }
   memset(&qid_in_flight, 0, sizeof(qid_in_flight));
   SET_HANDLER(&DNSHandler::startEvent);

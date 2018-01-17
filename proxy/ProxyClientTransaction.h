@@ -25,7 +25,7 @@
 #define __PROXY_CLIENT_TRANSACTION_H__
 
 #include "ProxyClientSession.h"
-#include <ts/MemView.h>
+#include <ts/string_view.h>
 
 class HttpSM;
 class HttpServerSession;
@@ -171,10 +171,6 @@ public:
   set_outbound_ip(const IpAddr &new_addr)
   {
   }
-  virtual void
-  clear_outbound()
-  {
-  }
   virtual bool
   is_outbound_transparent() const
   {
@@ -244,18 +240,22 @@ public:
   }
 
   virtual int
-  populate_protocol(ts::StringView *result, int size) const
+  populate_protocol(ts::string_view *result, int size) const
   {
     return parent ? parent->populate_protocol(result, size) : 0;
   }
 
   virtual const char *
-  protocol_contains(ts::StringView tag_prefix) const
+  protocol_contains(ts::string_view tag_prefix) const
   {
     return parent ? parent->protocol_contains(tag_prefix) : nullptr;
   }
 
-protected:
+  // This function must return a non-negative number that is different for two in-progress transactions with the same parent
+  // session.
+  //
+  virtual int get_transaction_id() const = 0;
+
 protected:
   ProxyClientSession *parent;
   HttpSM *current_reader;

@@ -61,17 +61,17 @@ LogAccessHttp::LogAccessHttp(HttpSM *sm)
     m_client_req_url_canon_str(nullptr),
     m_client_req_url_canon_len(0),
     m_client_req_unmapped_url_canon_str(nullptr),
-    m_client_req_unmapped_url_canon_len(-1),
+    m_client_req_unmapped_url_canon_len(0),
     m_client_req_unmapped_url_path_str(nullptr),
-    m_client_req_unmapped_url_path_len(-1),
+    m_client_req_unmapped_url_path_len(0),
     m_client_req_unmapped_url_host_str(nullptr),
-    m_client_req_unmapped_url_host_len(-1),
+    m_client_req_unmapped_url_host_len(0),
     m_client_req_url_path_str(nullptr),
     m_client_req_url_path_len(0),
     m_proxy_resp_content_type_str(nullptr),
     m_proxy_resp_content_type_len(0),
     m_cache_lookup_url_canon_str(nullptr),
-    m_cache_lookup_url_canon_len(-1)
+    m_cache_lookup_url_canon_len(0)
 {
   ink_assert(m_http_sm != nullptr);
 }
@@ -269,7 +269,7 @@ LogAccessHttp::marshal_cache_lookup_url_canon(char *buf)
   int len = INK_MIN_ALIGN;
 
   validate_lookup_url();
-  if (0 >= m_cache_lookup_url_canon_len) {
+  if (m_cache_lookup_url_canon_str == INVALID_STR) {
     // If the lookup URL isn't populated, we'll fall back to the request URL.
     len = marshal_client_req_url_canon(buf);
   } else {
@@ -326,7 +326,10 @@ LogAccessHttp::marshal_client_auth_user_name(char *buf)
 void
 LogAccessHttp::validate_unmapped_url()
 {
-  if (m_client_req_unmapped_url_canon_len < 0) {
+  if (m_client_req_unmapped_url_canon_str == nullptr) {
+    // prevent multiple validations
+    m_client_req_unmapped_url_canon_str = INVALID_STR;
+
     if (m_http_sm->t_state.unmapped_url.valid()) {
       int unmapped_url_len;
       char *unmapped_url = m_http_sm->t_state.unmapped_url.string_get_ref(&unmapped_url_len);
@@ -335,8 +338,6 @@ LogAccessHttp::validate_unmapped_url()
         m_client_req_unmapped_url_canon_str =
           LogUtils::escapify_url(&m_arena, unmapped_url, unmapped_url_len, &m_client_req_unmapped_url_canon_len);
       }
-    } else {
-      m_client_req_unmapped_url_canon_len = 0;
     }
   }
 }
@@ -352,10 +353,12 @@ LogAccessHttp::validate_unmapped_url_path()
   int len;
   char *c;
 
-  if (m_client_req_unmapped_url_path_len < 0 && m_client_req_unmapped_url_host_len < 0) {
+  if (m_client_req_unmapped_url_path_str == nullptr && m_client_req_unmapped_url_host_str == nullptr) {
     // Use unmapped canonical URL as default
     m_client_req_unmapped_url_path_str = m_client_req_unmapped_url_canon_str;
     m_client_req_unmapped_url_path_len = m_client_req_unmapped_url_canon_len;
+    // Incase the code below fails, we prevent it from being used.
+    m_client_req_unmapped_url_host_str = INVALID_STR;
 
     if (m_client_req_unmapped_url_path_len >= 6) { // xxx:// - minimum schema size
       c = (char *)memchr((void *)m_client_req_unmapped_url_path_str, ':', m_client_req_unmapped_url_path_len - 1);
@@ -385,7 +388,10 @@ LogAccessHttp::validate_unmapped_url_path()
 void
 LogAccessHttp::validate_lookup_url()
 {
-  if (m_cache_lookup_url_canon_len < 0) {
+  if (m_cache_lookup_url_canon_str == nullptr) {
+    // prevent multiple validations
+    m_cache_lookup_url_canon_str = INVALID_STR;
+
     if (m_http_sm->t_state.cache_info.lookup_url_storage.valid()) {
       int lookup_url_len;
       char *lookup_url = m_http_sm->t_state.cache_info.lookup_url_storage.string_get_ref(&lookup_url_len);
@@ -393,8 +399,6 @@ LogAccessHttp::validate_lookup_url()
       if (lookup_url && lookup_url[0] != 0) {
         m_cache_lookup_url_canon_str = LogUtils::escapify_url(&m_arena, lookup_url, lookup_url_len, &m_cache_lookup_url_canon_len);
       }
-    } else {
-      m_cache_lookup_url_canon_len = 0;
     }
   }
 }
@@ -417,6 +421,24 @@ LogAccessHttp::marshal_client_req_text(char *buf)
     len = offset;
   }
   return len;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
+LogAccessHttp::marshal_client_req_timestamp_sec(char *buf)
+{
+  return marshal_milestone_fmt_sec(TS_MILESTONE_UA_BEGIN, buf);
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
+LogAccessHttp::marshal_client_req_timestamp_ms(char *buf)
+{
+  return marshal_milestone_fmt_ms(TS_MILESTONE_UA_BEGIN, buf);
 }
 
 /*-------------------------------------------------------------------------
@@ -485,7 +507,7 @@ LogAccessHttp::marshal_client_req_unmapped_url_canon(char *buf)
   int len = INK_MIN_ALIGN;
 
   validate_unmapped_url();
-  if (0 >= m_client_req_unmapped_url_canon_len) {
+  if (m_client_req_unmapped_url_canon_str == INVALID_STR) {
     // If the unmapped URL isn't populated, we'll fall back to the original
     // client URL. This helps for example server intercepts to continue to
     // log the requests, even when there is no remap rule for it.
@@ -511,7 +533,7 @@ LogAccessHttp::marshal_client_req_unmapped_url_path(char *buf)
   validate_unmapped_url();
   validate_unmapped_url_path();
 
-  if (0 >= m_client_req_unmapped_url_path_len) {
+  if (m_client_req_unmapped_url_path_str == INVALID_STR) {
     len = marshal_client_req_url_path(buf);
   } else {
     len = round_strlen(m_client_req_unmapped_url_path_len + 1); // +1 for eos
@@ -528,29 +550,15 @@ LogAccessHttp::marshal_client_req_unmapped_url_path(char *buf)
 int
 LogAccessHttp::marshal_client_req_unmapped_url_host(char *buf)
 {
-  int plen = INK_MIN_ALIGN;
-
   validate_unmapped_url();
   validate_unmapped_url_path();
 
-  int alen = m_client_req_unmapped_url_host_len;
-  if (alen < 0) {
-    alen = 0;
-  }
-
-  // calculate the the padded length only if the actual length
-  // is not zero. We don't want the padded length to be zero
-  // because marshal_mem should write the DEFAULT_STR to the
-  // buffer if str is nil, and we need room for this.
-  if (alen) {
-    plen = round_strlen(alen + 1); // +1 for eos
-  }
-
+  int len = round_strlen(m_client_req_unmapped_url_host_len + 1); // +1 for eos
   if (buf) {
-    marshal_mem(buf, m_client_req_unmapped_url_host_str, alen, plen);
+    marshal_mem(buf, m_client_req_unmapped_url_host_str, m_client_req_unmapped_url_host_len, len);
   }
 
-  return plen;
+  return len;
 }
 
 int
@@ -780,20 +788,18 @@ LogAccessHttp::marshal_client_req_id(char *buf)
 int
 LogAccessHttp::marshal_client_req_uuid(char *buf)
 {
+  char str[TS_CRUUID_STRING_LEN + 1];
+  const char *uuid = Machine::instance()->uuid.getString();
+  int len          = snprintf(str, sizeof(str), "%s-%" PRId64 "", uuid, m_http_sm->sm_id);
+
+  ink_assert(len <= TS_CRUUID_STRING_LEN);
+  len = round_strlen(len + 1);
+
   if (buf) {
-    char str[TS_CRUUID_STRING_LEN + 1];
-    const char *uuid = (char *)Machine::instance()->uuid.getString();
-    int len;
-
-    len = snprintf(str, sizeof(str), "%s-%" PRId64 "", uuid, m_http_sm->sm_id);
-    ink_assert(len < (int)sizeof(str));
-
-    len = round_strlen(len + 1);
-    marshal_str(buf, str, len);
-    return len;
+    marshal_str(buf, str, len); // This will pad the remaning bytes properly ...
   }
 
-  return round_strlen(TS_CRUUID_STRING_LEN + 1);
+  return len;
 }
 
 /*-------------------------------------------------------------------------
@@ -1462,6 +1468,47 @@ LogAccessHttp::marshal_file_size(char *buf)
   -------------------------------------------------------------------------*/
 
 int
+LogAccessHttp::marshal_client_http_connection_id(char *buf)
+{
+  if (buf) {
+    int64_t id = 0;
+    if (m_http_sm) {
+      auto p = m_http_sm->ua_txn;
+      if (p) {
+        auto p2 = p->get_parent();
+        if (p2) {
+          id = p2->connection_id();
+        }
+      }
+    }
+    marshal_int(buf, id);
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
+LogAccessHttp::marshal_client_http_transaction_id(char *buf)
+{
+  if (buf) {
+    int64_t id = 0;
+    if (m_http_sm) {
+      auto p = m_http_sm->ua_txn;
+      if (p) {
+        id = p->get_transaction_id();
+      }
+    }
+    marshal_int(buf, id);
+  }
+  return INK_MIN_ALIGN;
+}
+
+/*-------------------------------------------------------------------------
+  -------------------------------------------------------------------------*/
+
+int
 LogAccessHttp::marshal_http_header_field(LogField::Container container, char *field, char *buf)
 {
   char *str        = nullptr;
@@ -1617,14 +1664,15 @@ LogAccessHttp::marshal_http_header_field_escapify(LogField::Container container,
         fld = fld->m_next_dup;
 
         // Dups need to be comma separated.  So if there's another
-        // dup, then add a comma and a space ...
-        //
+        // dup, then add a comma and an escapified space ...
+        constexpr const char SEP[] = ",%20";
+        constexpr size_t SEP_LEN   = sizeof(SEP) - 1;
         if (fld != nullptr) {
           if (buf) {
-            memcpy(buf, ", ", 2);
-            buf += 2;
+            memcpy(buf, SEP, SEP_LEN);
+            buf += SEP_LEN;
           }
-          running_len += 2;
+          running_len += SEP_LEN;
         }
       }
 
@@ -1670,6 +1718,26 @@ LogAccessHttp::marshal_milestone(TSMilestonesType ms, char *buf)
   if (buf) {
     int64_t val = ink_hrtime_to_msec(m_http_sm->milestones[ms]);
     marshal_int(buf, val);
+  }
+  return INK_MIN_ALIGN;
+}
+
+int
+LogAccessHttp::marshal_milestone_fmt_sec(TSMilestonesType type, char *buf)
+{
+  if (buf) {
+    ink_hrtime tsec = ink_hrtime_to_sec(m_http_sm->milestones[type]);
+    marshal_int(buf, tsec);
+  }
+  return INK_MIN_ALIGN;
+}
+
+int
+LogAccessHttp::marshal_milestone_fmt_ms(TSMilestonesType type, char *buf)
+{
+  if (buf) {
+    ink_hrtime tmsec = ink_hrtime_to_msec(m_http_sm->milestones[type]);
+    marshal_int(buf, tmsec);
   }
   return INK_MIN_ALIGN;
 }

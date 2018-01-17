@@ -651,7 +651,7 @@ retryCacheUrlLock(TSCont contp, TSEvent /* event ATS_UNUSED */, void * /* edata 
 static void
 addMutexRetry(CcTxnData *txn_data, TSEvent event, TSHRTime timeout)
 {
-  TSCont contp      = TSContCreate(retryCacheUrlLock, nullptr);
+  TSCont contp      = TSContCreate(retryCacheUrlLock, TSMutexCreate());
   TryLockData *data = static_cast<TryLockData *>(TSmalloc(sizeof(TryLockData)));
 
   data->event    = event;
@@ -993,7 +993,7 @@ getCcPlugin()
     data->keep_pass_list        = new UsecList();
     data->seq_id                = 0;
     data->global_config         = nullptr;
-    TSHttpArgIndexReserve(PLUGIN_NAME, "reserve txn_data slot", &(data->txn_slot));
+    TSHttpTxnArgIndexReserve(PLUGIN_NAME, "reserve txn_data slot", &(data->txn_slot));
 
     if (TS_SUCCESS == TSMgmtIntGet("proxy.config.cache.enable_read_while_writer", &read_while_writer) && read_while_writer > 0) {
       data->read_while_writer = true;
@@ -1119,6 +1119,8 @@ TSPluginInit(int argc, const char *argv[])
   info.plugin_name   = const_cast<char *>(PLUGIN_NAME);
   info.vendor_name   = const_cast<char *>(PLUGIN_VENDOR);
   info.support_email = const_cast<char *>(PLUGIN_SUPPORT);
+
+  TSError("[collapsed_connection] This plugin is deprecated as of ATS v7.1, use collapsed_forwarding instead!");
 
   if (TS_SUCCESS != TSPluginRegister(&info)) {
     TSError("[collapsed_connection] Plugin registration failed");

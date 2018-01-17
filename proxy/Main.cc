@@ -37,6 +37,7 @@
 #include "ts/ink_stack_trace.h"
 #include "ts/ink_syslog.h"
 #include "ts/hugepages.h"
+#include "ts/runroot.h"
 
 #include "api/ts/ts.h" // This is sadly needed because of us using TSThreadInit() for some reason.
 
@@ -75,6 +76,7 @@ extern "C" int plock(int);
 #include "ProxyConfig.h"
 #include "HttpProxyServerMain.h"
 #include "HttpBodyFactory.h"
+#include "ProxyClientSession.h"
 #include "logging/Log.h"
 #include "CacheControl.h"
 #include "IPAllow.h"
@@ -86,11 +88,12 @@ extern "C" int plock(int);
 #include "Plugin.h"
 #include "DiagsConfig.h"
 #include "CoreUtils.h"
-#include "congest/Congestion.h"
 #include "RemapProcessor.h"
 #include "I_Tasks.h"
 #include "InkAPIInternal.h"
 #include "HTTP2.h"
+#include "ts/ink_config.h"
+#include "P_SSLSNI.h"
 
 #include <ts/ink_cap.h>
 
@@ -164,15 +167,12 @@ static int cmd_line_dprintf_level = 0;  // default debug output level from ink_d
 static int poll_timeout           = -1; // No value set.
 static int cmd_disable_freelist   = 0;
 
-static int shutdown_timeout = 0;
-
-static volatile bool sigusr1_received = false;
-static volatile bool sigusr2_received = false;
+static bool signal_received[NSIG];
 
 // 1: delay listen, wait for cache.
 // 0: Do not delay, start listen ASAP.
 // -1: cache is already initialized, don't delay.
-static volatile int delay_listen_for_cache_p = 0;
+static int delay_listen_for_cache_p;
 
 AppVersionInfo appVersionInfo; // Build info for this application
 
@@ -213,14 +213,26 @@ static ArgumentDescription argument_descriptions[] = {
   {"accept_mss", '-', "MSS for client connections", "I", &accept_mss, nullptr, nullptr},
   {"poll_timeout", 't', "poll timeout in milliseconds", "I", &poll_timeout, nullptr, nullptr},
   HELP_ARGUMENT_DESCRIPTION(),
-  VERSION_ARGUMENT_DESCRIPTION()};
+  VERSION_ARGUMENT_DESCRIPTION(),
+  RUNROOT_ARGUMENT_DESCRIPTION(),
+};
+
+struct AutoStopCont : public Continuation {
+  int
+  mainEvent(int /* event */, Event * /* e */)
+  {
+    pmgmt->stop();
+    shutdown_event_system = true;
+    delete this;
+    return EVENT_CONT;
+  }
+
+  AutoStopCont() : Continuation(new_ProxyMutex()) { SET_HANDLER(&AutoStopCont::mainEvent); }
+};
 
 class SignalContinuation : public Continuation
 {
 public:
-  char *end;
-  char *snap;
-
   SignalContinuation() : Continuation(new_ProxyMutex())
   {
     end = snap = nullptr;
@@ -230,36 +242,66 @@ public:
   int
   periodic(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   {
-    if (sigusr1_received) {
-      sigusr1_received = false;
+    if (signal_received[SIGUSR1]) {
+      signal_received[SIGUSR1] = false;
 
       // TODO: TS-567 Integrate with debugging allocators "dump" features?
       ink_freelists_dump(stderr);
       ResourceTracker::dump(stderr);
+
       if (!end) {
         end = (char *)sbrk(0);
       }
+
       if (!snap) {
         snap = (char *)sbrk(0);
       }
+
       char *now = (char *)sbrk(0);
-      // TODO: Use logging instead directly writing to stderr
-      //       This is not error condition at the first place
-      //       so why stderr?
-      //
-      fprintf(stderr, "sbrk 0x%" PRIu64 " from first %" PRIu64 " from last %" PRIu64 "\n", (uint64_t)((ptrdiff_t)now),
-              (uint64_t)((ptrdiff_t)(now - end)), (uint64_t)((ptrdiff_t)(now - snap)));
+      Note("sbrk 0x%" PRIu64 " from first %" PRIu64 " from last %" PRIu64 "\n", (uint64_t)((ptrdiff_t)now),
+           (uint64_t)((ptrdiff_t)(now - end)), (uint64_t)((ptrdiff_t)(now - snap)));
       snap = now;
-    } else if (sigusr2_received) {
-      sigusr2_received = false;
+    }
+
+    if (signal_received[SIGUSR2]) {
+      signal_received[SIGUSR2] = false;
+
       Debug("log", "received SIGUSR2, reloading traffic.out");
+
       // reload output logfile (file is usually called traffic.out)
-      diags->set_stdout_output(bind_stdout);
-      diags->set_stderr_output(bind_stderr);
+      diags->set_std_output(StdStream::STDOUT, bind_stdout);
+      diags->set_std_output(StdStream::STDERR, bind_stderr);
+    }
+
+    if (signal_received[SIGTERM] || signal_received[SIGINT]) {
+      signal_received[SIGTERM] = false;
+      signal_received[SIGINT]  = false;
+
+      RecInt timeout = 0;
+      if (RecGetRecordInt("proxy.config.stop.shutdown_timeout", &timeout) == REC_ERR_OKAY && timeout &&
+          !http_client_session_draining) {
+        http_client_session_draining = true;
+        if (!remote_management_flag) {
+          // Close listening sockets here only if TS is running standalone
+          RecInt close_sockets = 0;
+          if (RecGetRecordInt("proxy.config.restart.stop_listening", &close_sockets) == REC_ERR_OKAY && close_sockets) {
+            stop_HttpProxyServer();
+          }
+        }
+      }
+
+      Debug("server", "received exit signal, shutting down in %" PRId64 "secs", timeout);
+
+      // Shutdown in `timeout` seconds (or now if that is 0).
+      eventProcessor.schedule_in(new AutoStopCont(), HRTIME_SECONDS(timeout));
     }
 
     return EVENT_CONT;
   }
+
+private:
+  const char *end;
+  const char *snap;
 };
 
 class TrackerContinuation : public Continuation
@@ -347,8 +389,11 @@ public:
   {
     memset(&_usage, 0, sizeof(_usage));
     SET_HANDLER(&MemoryLimit::periodic);
+    RecRegisterStatInt(RECT_PROCESS, "proxy.process.traffic_server.memory.rss", static_cast<RecInt>(0), RECP_NON_PERSISTENT);
   }
+
   ~MemoryLimit() override { mutex = nullptr; }
+
   int
   periodic(int event, Event *e)
   {
@@ -358,14 +403,15 @@ public:
       delete this;
       return EVENT_DONE;
     }
-    if (_memory_limit == 0) {
-      // first time it has been run
-      _memory_limit = REC_ConfigReadInteger("proxy.config.memory.max_usage");
-      _memory_limit = _memory_limit >> 10; // divide by 1024
-    }
-    if (_memory_limit > 0) {
-      if (getrusage(RUSAGE_SELF, &_usage) == 0) {
-        Debug("server", "memory usage - ru_maxrss: %ld memory limit: %" PRId64, _usage.ru_maxrss, _memory_limit);
+
+    // "reload" the setting, we don't do this often so not expensive
+    _memory_limit = REC_ConfigReadInteger("proxy.config.memory.max_usage");
+    _memory_limit = _memory_limit >> 10; // divide by 1024
+
+    if (getrusage(RUSAGE_SELF, &_usage) == 0) {
+      RecSetRecordInt("proxy.process.traffic_server.memory.rss", _usage.ru_maxrss << 10, REC_SOURCE_DEFAULT); // * 1024
+      Debug("server", "memory usage - ru_maxrss: %ld memory limit: %" PRId64, _usage.ru_maxrss, _memory_limit);
+      if (_memory_limit > 0) {
         if (_usage.ru_maxrss > _memory_limit) {
           if (net_memory_throttle == false) {
             net_memory_throttle = true;
@@ -377,13 +423,13 @@ public:
             Debug("server", "memory usage under limit - ru_maxrss: %ld memory limit: %" PRId64, _usage.ru_maxrss, _memory_limit);
           }
         }
+      } else {
+        // this feature has not been enabled
+        Debug("server", "limiting connections based on memory usage has been disabled");
+        e->cancel();
+        delete this;
+        return EVENT_DONE;
       }
-    } else {
-      // this feature has not be enabled
-      Debug("server", "limiting connections based on memory usage has been disabled");
-      e->cancel();
-      delete this;
-      return EVENT_DONE;
     }
     return EVENT_CONT;
   }
@@ -392,6 +438,23 @@ private:
   int64_t _memory_limit;
   struct rusage _usage;
 };
+
+void
+set_debug_ip(const char *ip_string)
+{
+  if (ip_string)
+    diags->debug_client_ip.load(ip_string);
+  else
+    diags->debug_client_ip.invalidate();
+}
+
+static int
+update_debug_client_ip(const char * /*name ATS_UNUSED */, RecDataT /* data_type ATS_UNUSED */, RecData data,
+                       void * /* data_type ATS_UNUSED */)
+{
+  set_debug_ip(data.rec_string);
+  return 0;
+}
 
 static int
 init_memory_tracker(const char *config_var, RecDataT /* type ATS_UNUSED */, RecData data, void * /* cookie ATS_UNUSED */)
@@ -426,14 +489,17 @@ init_memory_tracker(const char *config_var, RecDataT /* type ATS_UNUSED */, RecD
 static void
 proxy_signal_handler(int signo, siginfo_t *info, void *ctx)
 {
+  if ((unsigned)signo < countof(signal_received)) {
+    signal_received[signo] = true;
+  }
+
+  // These signals are all handled by SignalContinuation.
   switch (signo) {
-  case SIGUSR1:
-    sigusr1_received = true;
-    return;
-  case SIGUSR2:
-    sigusr2_received = true;
-    return;
   case SIGHUP:
+  case SIGINT:
+  case SIGTERM:
+  case SIGUSR1:
+  case SIGUSR2:
     return;
   }
 
@@ -450,14 +516,6 @@ proxy_signal_handler(int signo, siginfo_t *info, void *ctx)
   if (signal_is_crash(signo)) {
     signal_crash_handler(signo, info, ctx);
   }
-
-  if (shutdown_timeout) {
-    http2_drain = true;
-    sleep(shutdown_timeout);
-  }
-
-  shutdown_event_system = true;
-  sleep(1);
 }
 
 //
@@ -475,25 +533,25 @@ init_system()
   //
   // Delimit file Descriptors
   //
-  fds_limit = ink_max_out_rlimit(RLIMIT_NOFILE, true, false);
+  fds_limit = ink_max_out_rlimit(RLIMIT_NOFILE);
 }
 
 static void
 check_lockfile()
 {
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
-  ats_scoped_str lockfile;
+  std::string rundir(RecConfigReadRuntimeDir());
+  std::string lockfile;
   pid_t holding_pid;
   int err;
 
   lockfile = Layout::relative_to(rundir, SERVER_LOCK);
 
-  Lockfile server_lockfile(lockfile);
+  Lockfile server_lockfile(lockfile.c_str());
   err = server_lockfile.Get(&holding_pid);
 
   if (err != 1) {
     char *reason = strerror(-err);
-    fprintf(stderr, "WARNING: Can't acquire lockfile '%s'", (const char *)lockfile);
+    fprintf(stderr, "WARNING: Can't acquire lockfile '%s'", lockfile.c_str());
 
     if ((err == 0) && (holding_pid != -1)) {
       fprintf(stderr, " (Lock file held by process ID %ld)\n", (long)holding_pid);
@@ -511,17 +569,17 @@ check_lockfile()
 static void
 check_config_directories()
 {
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
-  ats_scoped_str sysconfdir(RecConfigReadConfigDir());
+  std::string rundir(RecConfigReadRuntimeDir());
+  std::string sysconfdir(RecConfigReadConfigDir());
 
-  if (access(sysconfdir, R_OK) == -1) {
-    fprintf(stderr, "unable to access() config dir '%s': %d, %s\n", (const char *)sysconfdir, errno, strerror(errno));
+  if (access(sysconfdir.c_str(), R_OK) == -1) {
+    fprintf(stderr, "unable to access() config dir '%s': %d, %s\n", sysconfdir.c_str(), errno, strerror(errno));
     fprintf(stderr, "please set the 'TS_ROOT' environment variable\n");
     ::exit(1);
   }
 
-  if (access(rundir, R_OK | W_OK) == -1) {
-    fprintf(stderr, "unable to access() local state dir '%s': %d, %s\n", (const char *)rundir, errno, strerror(errno));
+  if (access(rundir.c_str(), R_OK | W_OK) == -1) {
+    fprintf(stderr, "unable to access() local state dir '%s': %d, %s\n", rundir.c_str(), errno, strerror(errno));
     fprintf(stderr, "please set 'proxy.config.local_state_dir'\n");
     ::exit(1);
   }
@@ -740,12 +798,12 @@ cmd_clear(char *cmd)
   bool c_cache = !strcmp(cmd, "clear_cache");
 
   if (c_all || c_hdb) {
-    ats_scoped_str rundir(RecConfigReadRuntimeDir());
-    ats_scoped_str config(Layout::relative_to(rundir, "hostdb.config"));
+    std::string rundir(RecConfigReadRuntimeDir());
+    std::string config(Layout::relative_to(rundir, "hostdb.config"));
 
     Note("Clearing HostDB Configuration");
-    if (unlink(config) < 0) {
-      Note("unable to unlink %s", (const char *)config);
+    if (unlink(config.c_str()) < 0) {
+      Note("unable to unlink %s", config.c_str());
     }
   }
 
@@ -1080,7 +1138,7 @@ adjust_sys_settings()
 
   if (getrlimit(RLIMIT_NOFILE, &lim) == 0) {
     if (fds_throttle > (int)(lim.rlim_cur - THROTTLE_FD_HEADROOM)) {
-      lim.rlim_cur = (lim.rlim_max = (rlim_t)fds_throttle);
+      lim.rlim_cur = (lim.rlim_max = (rlim_t)(fds_throttle + THROTTLE_FD_HEADROOM));
       if (setrlimit(RLIMIT_NOFILE, &lim) == 0 && getrlimit(RLIMIT_NOFILE, &lim) == 0) {
         fds_limit = (int)lim.rlim_cur;
         syslog(LOG_NOTICE, "NOTE: RLIMIT_NOFILE(%d):cur(%d),max(%d)", RLIMIT_NOFILE, (int)lim.rlim_cur, (int)lim.rlim_max);
@@ -1088,12 +1146,12 @@ adjust_sys_settings()
     }
   }
 
-  ink_max_out_rlimit(RLIMIT_STACK, true, true);
-  ink_max_out_rlimit(RLIMIT_DATA, true, true);
-  ink_max_out_rlimit(RLIMIT_FSIZE, true, false);
+  ink_max_out_rlimit(RLIMIT_STACK);
+  ink_max_out_rlimit(RLIMIT_DATA);
+  ink_max_out_rlimit(RLIMIT_FSIZE);
 
 #ifdef RLIMIT_RSS
-  ink_max_out_rlimit(RLIMIT_RSS, true, true);
+  ink_max_out_rlimit(RLIMIT_RSS);
 #endif
 }
 
@@ -1278,26 +1336,6 @@ init_http_header()
   hpack_huffman_init();
 }
 
-struct AutoStopCont : public Continuation {
-  int
-  mainEvent(int event, Event *e)
-  {
-    (void)event;
-    (void)e;
-    ::exit(0);
-    return 0;
-  }
-  AutoStopCont() : Continuation(new_ProxyMutex()) { SET_HANDLER(&AutoStopCont::mainEvent); }
-};
-
-static void
-run_AutoStop()
-{
-  if (getenv("PROXY_AUTO_EXIT")) {
-    eventProcessor.schedule_in(new AutoStopCont(), HRTIME_SECONDS(atoi(getenv("PROXY_AUTO_EXIT"))));
-  }
-}
-
 #if TS_HAS_TESTS
 struct RegressionCont : public Continuation {
   int initialized;
@@ -1348,15 +1386,15 @@ run_RegressionTest()
 static void
 chdir_root()
 {
-  const char *prefix = Layout::get()->prefix;
+  std::string prefix = Layout::get()->prefix;
 
-  if (chdir(prefix) < 0) {
-    fprintf(stderr, "%s: unable to change to root directory \"%s\" [%d '%s']\n", appVersionInfo.AppStr, prefix, errno,
+  if (chdir(prefix.c_str()) < 0) {
+    fprintf(stderr, "%s: unable to change to root directory \"%s\" [%d '%s']\n", appVersionInfo.AppStr, prefix.c_str(), errno,
             strerror(errno));
     fprintf(stderr, "%s: please correct the path or set the TS_ROOT environment variable\n", appVersionInfo.AppStr);
     ::exit(1);
   } else {
-    printf("%s: using root directory '%s'\n", appVersionInfo.AppStr, prefix);
+    printf("%s: using root directory '%s'\n", appVersionInfo.AppStr, prefix.c_str());
   }
 }
 
@@ -1514,6 +1552,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   // Define the version info
   appVersionInfo.setup(PACKAGE_NAME, "traffic_server", PACKAGE_VERSION, __DATE__, __TIME__, BUILD_MACHINE, BUILD_PERSON, "");
 
+  runroot_handler(argv);
   // Before accessing file system initialize Layout engine
   Layout::create();
   chdir_root(); // change directory to the install root of traffic server.
@@ -1537,12 +1576,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   }
 #endif
 
-  // Specific validity checks.
-  if (*conf_dir && command_index != find_cmd_index(CMD_VERIFY_CONFIG)) {
-    fprintf(stderr, "-D option can only be used with the %s command\n", CMD_VERIFY_CONFIG);
-    ::exit(1);
-  }
-
   // Bootstrap syslog.  Since we haven't read records.config
   //   yet we do not know where
   openlog("traffic_server", LOG_PID | LOG_NDELAY | LOG_NOWAIT, LOG_DAEMON);
@@ -1560,8 +1593,8 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   // related errors and if diagsConfig isn't get up yet that will crash on a NULL pointer.
   diagsConfig = new DiagsConfig("Server", DIAGS_LOG_FILENAME, error_tags, action_tags, false);
   diags       = diagsConfig->diags;
-  diags->set_stdout_output(bind_stdout);
-  diags->set_stderr_output(bind_stderr);
+  diags->set_std_output(StdStream::STDOUT, bind_stdout);
+  diags->set_std_output(StdStream::STDERR, bind_stderr);
   if (is_debug_tag_set("diags")) {
     diags->dump();
   }
@@ -1643,17 +1676,19 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   main_thread->set_specific();
 
   // Re-initialize diagsConfig based on records.config configuration
-  if (diagsConfig) {
-    RecDebugOff();
-    delete (diagsConfig);
-  }
-  diagsConfig = new DiagsConfig("Server", DIAGS_LOG_FILENAME, error_tags, action_tags, true);
-  diags       = diagsConfig->diags;
+  DiagsConfig *old_log = diagsConfig;
+  diagsConfig          = new DiagsConfig("Server", DIAGS_LOG_FILENAME, error_tags, action_tags, true);
+  diags                = diagsConfig->diags;
   RecSetDiags(diags);
-  diags->set_stdout_output(bind_stdout);
-  diags->set_stderr_output(bind_stderr);
+  diags->set_std_output(StdStream::STDOUT, bind_stdout);
+  diags->set_std_output(StdStream::STDERR, bind_stderr);
   if (is_debug_tag_set("diags")) {
     diags->dump();
+  }
+
+  if (old_log) {
+    delete (old_log);
+    old_log = nullptr;
   }
 
   DebugCapabilities("privileges"); // Can do this now, logging is up.
@@ -1666,8 +1701,9 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   if (mlock_flags == 2) {
     if (0 != mlockall(MCL_CURRENT | MCL_FUTURE)) {
       Warning("Unable to mlockall() on startup");
-    } else
+    } else {
       Debug("server", "Successfully called mlockall()");
+    }
   }
 #endif
 
@@ -1676,8 +1712,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     process_core(core_file);
     ::exit(0);
   }
-
-  REC_ReadConfigInteger(shutdown_timeout, "proxy.config.stop.shutdown_timeout");
 
   // We need to do this early so we can initialize the Machine
   // singleton, which depends on configuration values loaded in this.
@@ -1756,6 +1790,13 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   ink_hostdb_init(makeModuleVersion(HOSTDB_MODULE_MAJOR_VERSION, HOSTDB_MODULE_MINOR_VERSION, PRIVATE_MODULE_HEADER));
   ink_dns_init(makeModuleVersion(HOSTDB_MODULE_MAJOR_VERSION, HOSTDB_MODULE_MINOR_VERSION, PRIVATE_MODULE_HEADER));
   ink_split_dns_init(makeModuleVersion(1, 0, PRIVATE_MODULE_HEADER));
+
+  // Do the inits for NetProcessors that use ET_NET threads. MUST be before starting those threads.
+  netProcessor.init();
+  init_HttpProxyServer();
+
+  // !! ET_NET threads start here !!
+  // This means any spawn scheduling must be done before this point.
   eventProcessor.start(num_of_net_threads, stacksize);
 
   int num_remap_threads = 0;
@@ -1771,9 +1812,16 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
   eventProcessor.schedule_every(new SignalContinuation, HRTIME_MSECOND * 500, ET_CALL);
   eventProcessor.schedule_every(new DiagsLogContinuation, HRTIME_SECOND, ET_TASK);
-  eventProcessor.schedule_every(new MemoryLimit, HRTIME_SECOND, ET_TASK);
+  eventProcessor.schedule_every(new MemoryLimit, HRTIME_SECOND * 10, ET_TASK);
   REC_RegisterConfigUpdateFunc("proxy.config.dump_mem_info_frequency", init_memory_tracker, nullptr);
   init_memory_tracker(nullptr, RECD_NULL, RecData(), nullptr);
+
+  char *p = REC_ConfigReadString("proxy.config.diags.debug.client_ip");
+  if (p) {
+    // Translate string to IpAddr
+    set_debug_ip(p);
+  }
+  REC_RegisterConfigUpdateFunc("proxy.config.diags.debug.client_ip", update_debug_client_ip, NULL);
 
   // log initialization moved down
 
@@ -1791,7 +1839,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     remapProcessor.start(num_remap_threads, stacksize);
     RecProcessStart();
     initCacheControl();
-    initCongestionControl();
     IpAllow::startup();
     ParentConfig::startup();
 #ifdef SPLIT_DNS
@@ -1805,13 +1852,6 @@ main(int /* argc ATS_UNUSED */, const char **argv)
       HttpProxyPort::loadConfig();
     }
     HttpProxyPort::loadDefaultIfEmpty();
-
-    if (!accept_mss) {
-      REC_ReadConfigInteger(accept_mss, "proxy.config.net.sock_mss_in");
-    }
-
-    NetProcessor::accept_mss = accept_mss;
-    netProcessor.start(0, stacksize);
 
     dnsProcessor.start(0, stacksize);
     if (hostDBProcessor.start() < 0)
@@ -1870,9 +1910,8 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     // main server logic initiated here //
     //////////////////////////////////////
 
+    init_accept_HttpProxyServer(num_accept_threads);
     transformProcessor.start();
-
-    init_HttpProxyServer(num_accept_threads);
 
     int http_enabled = 1;
     REC_ReadConfigInteger(http_enabled, "proxy.config.http.enabled");
@@ -1896,7 +1935,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
         start_HttpProxyServer(); // PORTS_READY_HOOK called from in here
       }
     }
-
+    SNIConfig::cloneProtoSet();
     // Plugins can register their own configuration names so now after they've done that
     // check for unexpected names. This is very late because remap plugins must be allowed to
     // fire up as well.
@@ -1935,7 +1974,9 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     run_RegressionTest();
 #endif
 
-    run_AutoStop();
+    if (getenv("PROXY_AUTO_EXIT")) {
+      eventProcessor.schedule_in(new AutoStopCont(), HRTIME_SECONDS(atoi(getenv("PROXY_AUTO_EXIT"))));
+    }
   }
 
 #if !TS_USE_POSIX_CAP

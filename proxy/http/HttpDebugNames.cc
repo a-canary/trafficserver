@@ -212,14 +212,6 @@ HttpDebugNames::get_event_name(int event)
     return ("HTTP_TUNNEL_EVENT_CONSUMER_DETACH");
 
   //////////////////////////////
-  //  CongestionControl Events
-  //////////////////////////////
-  case CONGESTION_EVENT_CONGESTED_ON_F:
-    return ("CONGESTION_EVENT_CONGESTED_ON_F");
-  case CONGESTION_EVENT_CONGESTED_ON_M:
-    return ("CONGESTION_EVENT_CONGESTED_ON_M");
-
-  //////////////////////////////
   //  Plugin Events
   //////////////////////////////
   case HTTP_API_CONTINUE:
@@ -472,6 +464,10 @@ HttpDebugNames::get_api_hook_name(TSHttpHookID t)
     return "TS_SSL_CERT_HOOK";
   case TS_SSL_SERVERNAME_HOOK:
     return "TS_SSL_SERVERNAME_HOOK";
+  case TS_SSL_SERVER_VERIFY_HOOK:
+    return "TS_SSL_SERVER_VERIFY_HOOK";
+  case TS_SSL_SESSION_HOOK:
+    return "TS_SSL_SESSION_HOOK";
   }
 
   return "unknown hook";

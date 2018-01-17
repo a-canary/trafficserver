@@ -81,7 +81,7 @@ logging_crash_handler(int signo, siginfo_t *info, void *ptr)
 static void
 init_system(bool notify_syslog)
 {
-  fds_limit = ink_max_out_rlimit(RLIMIT_NOFILE, true, false);
+  fds_limit = ink_max_out_rlimit(RLIMIT_NOFILE);
 
   signal_register_crash_handler(logging_crash_handler);
   if (notify_syslog) {
@@ -148,12 +148,12 @@ check_lockfile()
   pid_t holding_pid;
   char *lockfile = nullptr;
 
-  if (access(Layout::get()->runtimedir, R_OK | W_OK) == -1) {
-    fprintf(stderr, "unable to access() dir'%s': %d, %s\n", Layout::get()->runtimedir, errno, strerror(errno));
+  if (access(Layout::get()->runtimedir.c_str(), R_OK | W_OK) == -1) {
+    fprintf(stderr, "unable to access() dir'%s': %d, %s\n", Layout::get()->runtimedir.c_str(), errno, strerror(errno));
     fprintf(stderr, " please set correct path in env variable TS_ROOT \n");
     ::exit(1);
   }
-  lockfile = Layout::relative_to(Layout::get()->runtimedir, SERVER_LOCK);
+  lockfile = ats_stringdup(Layout::relative_to(Layout::get()->runtimedir, SERVER_LOCK));
 
   Lockfile server_lockfile(lockfile);
   err = server_lockfile.Get(&holding_pid);

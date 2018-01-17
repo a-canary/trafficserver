@@ -25,7 +25,8 @@
 #define __PRIORITY_QUEUE_H__
 
 #include "ts/ink_assert.h"
-#include "ts/Vec.h"
+#include <vector>
+#include <algorithm>
 
 template <typename T> struct PriorityQueueEntry {
   PriorityQueueEntry(T n) : index(0), node(n){};
@@ -48,16 +49,17 @@ public:
   PriorityQueue() {}
   ~PriorityQueue() {}
   bool empty();
+  bool in(PriorityQueueEntry<T> *entry);
   PriorityQueueEntry<T> *top();
   void pop();
   void push(PriorityQueueEntry<T> *);
   void update(PriorityQueueEntry<T> *);
   void update(PriorityQueueEntry<T> *, bool);
   void erase(PriorityQueueEntry<T> *);
-  const Vec<PriorityQueueEntry<T> *> &dump() const;
+  const std::vector<PriorityQueueEntry<T> *> &dump() const;
 
 private:
-  Vec<PriorityQueueEntry<T> *> _v;
+  std::vector<PriorityQueueEntry<T> *> _v;
 
   void _swap(uint32_t, uint32_t);
   void _bubble_up(uint32_t);
@@ -65,7 +67,7 @@ private:
 };
 
 template <typename T, typename Comp>
-const Vec<PriorityQueueEntry<T> *> &
+const std::vector<PriorityQueueEntry<T> *> &
 PriorityQueue<T, Comp>::dump() const
 {
   return _v;
@@ -73,9 +75,22 @@ PriorityQueue<T, Comp>::dump() const
 
 template <typename T, typename Comp>
 bool
+PriorityQueue<T, Comp>::in(PriorityQueueEntry<T> *entry)
+{
+  ink_release_assert(entry != NULL);
+
+  if (std::find(_v.begin(), _v.end(), entry) != _v.end()) {
+    return true;
+  }
+
+  return false;
+}
+
+template <typename T, typename Comp>
+bool
 PriorityQueue<T, Comp>::empty()
 {
-  return _v.length() == 0;
+  return _v.empty();
 }
 
 template <typename T, typename Comp>
@@ -84,7 +99,7 @@ PriorityQueue<T, Comp>::push(PriorityQueueEntry<T> *entry)
 {
   ink_release_assert(entry != NULL);
 
-  int len = _v.length();
+  int len = _v.size();
   _v.push_back(entry);
   entry->index = len;
 
@@ -110,8 +125,10 @@ PriorityQueue<T, Comp>::pop()
     return;
   }
 
-  _swap(0, _v.length() - 1);
-  _v.pop();
+  const uint32_t original_index = _v[0]->index;
+  _swap(0, _v.size() - 1);
+  _v[_v.size() - 1]->index = original_index;
+  _v.pop_back();
   _bubble_down(0);
 }
 
@@ -123,16 +140,24 @@ PriorityQueue<T, Comp>::erase(PriorityQueueEntry<T> *entry)
     return;
   }
 
-  ink_release_assert(entry->index < _v.length());
+  // If the entry doesn't belong to this queue just return.
+  if (entry != _v[entry->index]) {
+    ink_assert(!in(entry));
+    return;
+  }
+
+  ink_release_assert(entry->index < _v.size());
   const uint32_t original_index = entry->index;
-  if (original_index != (_v.length() - 1)) {
+  if (original_index != (_v.size() - 1)) {
     // Move the erased item to the end to be popped off
-    _swap(original_index, _v.length() - 1);
-    _v.pop();
+    _swap(original_index, _v.size() - 1);
+    // Fix the index before we pop it
+    _v[_v.size() - 1]->index = original_index;
+    _v.pop_back();
     _bubble_down(original_index);
     _bubble_up(original_index);
   } else { // Otherwise, we are already at the end, just pop
-    _v.pop();
+    _v.pop_back();
   }
 }
 
@@ -217,9 +242,9 @@ PriorityQueue<T, Comp>::_bubble_down(uint32_t index)
   Comp comp;
 
   while (true) {
-    if ((left = index * 2 + 1) >= _v.length()) {
+    if ((left = index * 2 + 1) >= _v.size()) {
       break;
-    } else if ((right = index * 2 + 2) >= _v.length()) {
+    } else if ((right = index * 2 + 2) >= _v.size()) {
       smaller = left;
     } else {
       smaller = comp(_v[left]->node, _v[right]->node) ? left : right;

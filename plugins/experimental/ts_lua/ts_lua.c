@@ -80,6 +80,7 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
     switch (opt) {
     case 's':
       states = atoi(optarg);
+      TSDebug(TS_LUA_DEBUG_TAG, "[%s] setting number of lua VM [%d]", __FUNCTION__, states);
       // set state
       break;
     }
@@ -90,7 +91,8 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
   }
 
   if (states > TS_LUA_MAX_STATE_COUNT || states < 1) {
-    snprintf(errbuf, errbuf_size, "[TSRemapNewInstance] - invalid state in option input");
+    snprintf(errbuf, errbuf_size, "[TSRemapNewInstance] - invalid state in option input. Must be between 1 and %d",
+             TS_LUA_MAX_STATE_COUNT);
     return TS_ERROR;
   }
 
@@ -108,29 +110,49 @@ TSRemapNewInstance(int argc, char *argv[], void **ih, char *errbuf, int errbuf_s
     return TS_ERROR;
   }
 
-  ts_lua_instance_conf *conf = TSmalloc(sizeof(ts_lua_instance_conf));
+  ts_lua_instance_conf *conf = NULL;
+
+  // check to make sure it is a lua file and there is no parameter for the lua file
+  if (fn && (argc - optind < 2)) {
+    TSDebug(TS_LUA_DEBUG_TAG, "[%s] checking if script has been registered", __FUNCTION__);
+    char script[TS_LUA_MAX_SCRIPT_FNAME_LENGTH];
+    snprintf(script, TS_LUA_MAX_SCRIPT_FNAME_LENGTH, "%s", argv[optind]);
+    // we only need to check the first lua VM for script registration
+    conf = ts_lua_script_registered(ts_lua_main_ctx_array[0].lua, script);
+  }
+
   if (!conf) {
-    strncpy(errbuf, "[TSRemapNewInstance] TSmalloc failed!!", errbuf_size - 1);
-    errbuf[errbuf_size - 1] = '\0';
-    return TS_ERROR;
-  }
+    TSDebug(TS_LUA_DEBUG_TAG, "[%s] creating new conf instance", __FUNCTION__);
 
-  memset(conf, 0, sizeof(ts_lua_instance_conf));
-  conf->states = states;
-  conf->remap  = 1;
+    conf = TSmalloc(sizeof(ts_lua_instance_conf));
+    if (!conf) {
+      strncpy(errbuf, "[TSRemapNewInstance] TSmalloc failed!!", errbuf_size - 1);
+      errbuf[errbuf_size - 1] = '\0';
+      return TS_ERROR;
+    }
 
-  if (fn) {
-    snprintf(conf->script, TS_LUA_MAX_SCRIPT_FNAME_LENGTH, "%s", argv[optind]);
-  } else {
-    conf->content = argv[optind];
-  }
+    memset(conf, 0, sizeof(ts_lua_instance_conf));
+    conf->states = states;
+    conf->remap  = 1;
 
-  ts_lua_init_instance(conf);
+    if (fn) {
+      snprintf(conf->script, TS_LUA_MAX_SCRIPT_FNAME_LENGTH, "%s", argv[optind]);
+    } else {
+      conf->content = argv[optind];
+    }
 
-  ret = ts_lua_add_module(conf, ts_lua_main_ctx_array, conf->states, argc - optind, &argv[optind], errbuf, errbuf_size);
+    ts_lua_init_instance(conf);
 
-  if (ret != 0) {
-    return TS_ERROR;
+    ret = ts_lua_add_module(conf, ts_lua_main_ctx_array, conf->states, argc - optind, &argv[optind], errbuf, errbuf_size);
+
+    if (ret != 0) {
+      return TS_ERROR;
+    }
+
+    if (fn) {
+      // we only need to register the script for the first lua VM
+      ts_lua_script_register(ts_lua_main_ctx_array[0].lua, conf->script, conf);
+    }
   }
 
   *ih = conf;
@@ -144,7 +166,9 @@ TSRemapDeleteInstance(void *ih)
   int states = ((ts_lua_instance_conf *)ih)->states;
   ts_lua_del_module((ts_lua_instance_conf *)ih, ts_lua_main_ctx_array, states);
   ts_lua_del_instance(ih);
-  TSfree(ih);
+  // because we now reuse ts_lua_instance_conf / ih for remap rules sharing the same lua script
+  // we cannot safely free it in this function during the configuration reloads
+  // we therefore are leaking memory on configuration reloads
   return;
 }
 
@@ -193,6 +217,8 @@ ts_lua_remap_plugin_init(void *ih, TSHttpTxn rh, TSRemapRequestInfo *rri)
 
   lua_getglobal(L, (remap ? TS_LUA_FUNCTION_REMAP : TS_LUA_FUNCTION_OS_RESPONSE));
   if (lua_type(L, -1) != LUA_TFUNCTION) {
+    lua_pop(L, 1);
+    ts_lua_destroy_http_ctx(http_ctx);
     TSMutexUnlock(main_ctx->mutexp);
     return TSREMAP_NO_REMAP;
   }
@@ -336,10 +362,6 @@ globalHookHandler(TSCont contp, TSEvent event ATS_UNUSED, void *edata)
     lua_getglobal(l, TS_LUA_FUNCTION_G_POST_REMAP);
     break;
 
-  case TS_EVENT_HTTP_SELECT_ALT:
-    lua_getglobal(l, TS_LUA_FUNCTION_G_SELECT_ALT);
-    break;
-
   case TS_EVENT_HTTP_OS_DNS:
     lua_getglobal(l, TS_LUA_FUNCTION_G_OS_DNS);
     break;
@@ -444,7 +466,7 @@ TSPluginInit(int argc, const char *argv[])
   }
 
   if (states > TS_LUA_MAX_STATE_COUNT || states < 1) {
-    TSError("[ts_lua][%s] invalid # of states from option input", __FUNCTION__);
+    TSError("[ts_lua][%s] invalid # of states from option input. Must be between 1 and %d", __FUNCTION__, TS_LUA_MAX_STATE_COUNT);
     return;
   }
 
@@ -546,13 +568,6 @@ TSPluginInit(int argc, const char *argv[])
   if (lua_type(l, -1) == LUA_TFUNCTION) {
     TSHttpHookAdd(TS_HTTP_POST_REMAP_HOOK, global_contp);
     TSDebug(TS_LUA_DEBUG_TAG, "post_remap_hook added");
-  }
-  lua_pop(l, 1);
-
-  lua_getglobal(l, TS_LUA_FUNCTION_G_SELECT_ALT);
-  if (lua_type(l, -1) == LUA_TFUNCTION) {
-    TSHttpHookAdd(TS_HTTP_SELECT_ALT_HOOK, global_contp);
-    TSDebug(TS_LUA_DEBUG_TAG, "select_alt_hook added");
   }
   lua_pop(l, 1);
 

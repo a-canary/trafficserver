@@ -36,7 +36,7 @@
 
 static const char *plugin_dir = ".";
 
-typedef void (*init_func_t)(int argc, char *argv[]);
+using init_func_t = void (*)(int, char **);
 
 // Plugin registration vars
 //
@@ -231,7 +231,7 @@ plugin_init(bool validateOnly)
 
   if (INIT_ONCE) {
     api_init();
-    plugin_dir = RecConfigReadPluginDir();
+    plugin_dir = ats_stringdup(RecConfigReadPluginDir());
     INIT_ONCE  = false;
   }
 
@@ -299,8 +299,12 @@ plugin_init(bool validateOnly)
         argv[i] = vars[i];
       }
     }
-    argv[argc] = nullptr;
 
+    if (argc < MAX_PLUGIN_ARGS) {
+      argv[argc] = nullptr;
+    } else {
+      argv[MAX_PLUGIN_ARGS - 1] = nullptr;
+    }
     retVal = plugin_load(argc, argv, validateOnly);
 
     for (i = 0; i < argc; i++) {

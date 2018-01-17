@@ -49,7 +49,7 @@
 class CacheKey
 {
 public:
-  CacheKey(TSHttpTxn txn, TSMBuffer buf, TSMLoc url, TSMLoc hdrs);
+  CacheKey(TSHttpTxn txn, TSMBuffer buf, TSMLoc url, TSMLoc hdrs, String separator);
 
   void append(unsigned number);
   void append(const String &);
@@ -64,10 +64,12 @@ public:
   bool appendUaClass(Classifier &classifier);
   bool finalize() const;
 
+  // noncopyable
+  CacheKey(const CacheKey &) = delete;            // disallow
+  CacheKey &operator=(const CacheKey &) = delete; // disallow
+
 private:
-  CacheKey();                            // disallow
-  CacheKey(const CacheKey &);            // disallow
-  CacheKey &operator=(const CacheKey &); // disallow
+  CacheKey(); // disallow
 
   /* Information from the request */
   TSHttpTxn _txn; /**< @brief transaction handle */
@@ -75,7 +77,8 @@ private:
   TSMLoc _url;    /**< @brief URI handle */
   TSMLoc _hdrs;   /**< @brief headers handle */
 
-  String _key; /**< @brief cache key */
+  String _key;       /**< @brief cache key */
+  String _separator; /**< @brief a separator used to separate the cache key elements extracted from the URI */
 };
 
 #endif /* PLUGINS_EXPERIMENTAL_CACHEKEY_CACHEKEY_H_ */

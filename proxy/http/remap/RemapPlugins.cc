@@ -55,7 +55,7 @@ RemapPlugins::run_plugin(remap_plugin_info *plugin)
     _s->remap_plugin_instance  = ih;
   }
 
-  plugin_retcode = plugin->fp_tsremap_do_remap(ih, _s ? reinterpret_cast<TSHttpTxn>(_s->state_machine) : nullptr, &rri);
+  plugin_retcode = plugin->fp_tsremap_do_remap(ih, reinterpret_cast<TSHttpTxn>(_s->state_machine), &rri);
   // TODO: Deal with negative return codes here
   if (plugin_retcode < 0) {
     plugin_retcode = TSREMAP_NO_REMAP;
@@ -118,12 +118,7 @@ RemapPlugins::run_single_remap()
     return 1;
   }
 
-  if (_cur > MAX_REMAP_PLUGIN_CHAIN) {
-    Error("called %s more than %u times; stopping this remap insanity now", __func__, MAX_REMAP_PLUGIN_CHAIN);
-    return 1;
-  }
-
-  if (_cur >= map->_plugin_count) {
+  if (_cur >= map->plugin_count()) {
     // Normally, we would callback into this function but we dont have anything more to do!
     Debug("url_rewrite", "completed all remap plugins for rule id %d", map->map_id);
     return 1;

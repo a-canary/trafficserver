@@ -107,7 +107,6 @@ each lua script:
 - **'do_global_send_response'**
 - **'do_global_cache_lookup_complete'**
 - **'do_global_read_cache'**
-- **'do_global_select_alt'**
 
 We can write this in plugin.config:
 
@@ -178,21 +177,22 @@ Here is an example:
 
 ts.debug
 --------
-**syntax:** *ts.debug(MESSAGE)*
+**syntax:** *ts.debug(TAG?, MESSAGE)*
 
 **context:** global
 
-**description**: Log the MESSAGE to traffic.out if debug is enabled.
+**description**: Log the MESSAGE to traffic.out if debug TAG is enabled(the default TAG is **ts_lua**).
 
 Here is an example:
 
 ::
 
        ts.debug('I am in do_remap now.')
+       ts.debug("scw", "hello world")
 
-The debug tag is **ts_lua** and we should write this in records.config:
+We should write this TAG in records.config(If TAG is missing, default TAG will be set):
 
-``CONFIG proxy.config.diags.debug.tags STRING ts_lua``
+``CONFIG proxy.config.diags.debug.tags STRING TAG``
 
 `TOP <#ts-lua-plugin>`_
 
@@ -390,7 +390,6 @@ Hook point constants
     TS_LUA_HOOK_OS_DNS
     TS_LUA_HOOK_PRE_REMAP
     TS_LUA_HOOK_READ_CACHE_HDR
-    TS_LUA_HOOK_SELECT_ALT
     TS_LUA_HOOK_TXN_CLOSE
     TS_LUA_HOOK_POST_REMAP
     TS_LUA_HOOK_CACHE_LOOKUP_COMPLETE
@@ -422,9 +421,6 @@ Additional Information:
 +-----------------------+---------------------------+----------------------+--------------------+----------------------+
 | TS_HTTP_POST          | TS_LUA_HOOK               |     YES              |    NO              |    YES               |
 | _REMAP_HOOK           | _POST_REMAP               |                      |                    |                      |
-+-----------------------+---------------------------+----------------------+--------------------+----------------------+
-| TS_HTTP_SELECT        | TS_LUA_HOOK               |     NO               |    NO              |    NO                |
-| _ALT_HOOK             | _SELECT_ALT               |                      |                    |                      |
 +-----------------------+---------------------------+----------------------+--------------------+----------------------+
 | TS_HTTP_READ          | TS_LUA_HOOK               |     YES              |    NO              |    YES               |
 | _CACHE_HDR_HOOK       | _READ_CACHE_HDR           |                      |                    |                      |
@@ -3059,6 +3055,7 @@ Http config constants
     TS_LUA_CONFIG_HTTP_ANONYMIZE_INSERT_CLIENT_IP
     TS_LUA_CONFIG_HTTP_RESPONSE_SERVER_ENABLED
     TS_LUA_CONFIG_HTTP_INSERT_SQUID_X_FORWARDED_FOR
+    TS_LUA_CONFIG_HTTP_INSERT_FORWARDED
     TS_LUA_CONFIG_HTTP_SERVER_TCP_INIT_CWND
     TS_LUA_CONFIG_HTTP_SEND_HTTP11_REQUESTS
     TS_LUA_CONFIG_HTTP_CACHE_HTTP
@@ -3107,7 +3104,6 @@ Http config constants
     TS_LUA_CONFIG_HTTP_FLOW_CONTROL_LOW_WATER_MARK
     TS_LUA_CONFIG_HTTP_FLOW_CONTROL_HIGH_WATER_MARK
     TS_LUA_CONFIG_HTTP_CACHE_RANGE_LOOKUP
-    TS_LUA_CONFIG_HTTP_NORMALIZE_AE_GZIP
     TS_LUA_CONFIG_HTTP_DEFAULT_BUFFER_SIZE
     TS_LUA_CONFIG_HTTP_DEFAULT_BUFFER_WATER_MARK
     TS_LUA_CONFIG_HTTP_REQUEST_HEADER_MAX_SIZE
@@ -3126,9 +3122,9 @@ Http config constants
     TS_LUA_CONFIG_HTTP_CACHE_GENERATION
     TS_LUA_CONFIG_BODY_FACTORY_TEMPLATE_BASE
     TS_LUA_CONFIG_HTTP_CACHE_OPEN_WRITE_FAIL_ACTION
-    TS_LUA_CONFIG_HTTP_ENABLE_REDIRECTION
     TS_LUA_CONFIG_HTTP_NUMBER_OF_REDIRECTIONS
     TS_LUA_CONFIG_HTTP_CACHE_MAX_OPEN_WRITE_RETRIES
+    TS_LUA_CONFIG_HTTP_NORMALIZE_AE
     TS_LUA_CONFIG_LAST_ENTRY
 
 `TOP <#ts-lua-plugin>`_
@@ -3374,6 +3370,8 @@ Milestone constants
     TS_LUA_MILESTONE_SM_FINISH
     TS_LUA_MILESTONE_PLUGIN_ACTIVE
     TS_LUA_MILESTONE_PLUGIN_TOTAL
+    TS_LUA_MILESTONE_TLS_HANDSHAKE_START
+    TS_LUA_MILESTONE_TLS_HANDSHAKE_END
 
 
 `TOP <#ts-lua-plugin>`_

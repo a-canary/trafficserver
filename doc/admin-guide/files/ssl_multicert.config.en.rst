@@ -98,20 +98,8 @@ ssl_ticket_enabled=1|0 (optional)
   OpenSSL should be upgraded to version 0.9.8f or higher. This
   option must be set to `0` to disable session ticket support.
 
-ticket_key_name=FILENAME (optional)
-  The name of session ticket key file which contains a secret for
-  encrypting and decrypting TLS session tickets. If *FILENAME* is
-  not an absolute path, it is resolved relative to the
-  :ts:cv:`proxy.config.ssl.server.cert.path` configuration variable.
-  This option has no effect if session tickets are disabled by the
-  ``ssl_ticket_enabled`` option.  The contents of the key file should
-  be 48 random (ASCII) bytes. One way to generate this would be to run
-  ``head -c48 /dev/urandom | openssl enc -base64 | head -c48 > file.ticket``.
-
-  Session ticket support is enabled by default. If neither of the
-  ``ssl_ticket_enabled`` and ``ticket_key_name`` options are
-  specified, and internal session ticket key is generated. This
-  key will be different each time Traffic Server is started.
+ticket_key_name=FILENAME (optional) [**REMOVED in 7.1.x and 8.0**]
+   Ticket key should be set in records.config via :ts:cv:`proxy.config.ssl.server.ticket_key.filename`
 
 ssl_key_dialog=builtin|"exec:/path/to/program [args]" (optional)
   Method used to provide a pass phrase for encrypted private keys.  If the
@@ -130,6 +118,17 @@ ssl_key_dialog=builtin|"exec:/path/to/program [args]" (optional)
       are supported by single quoting (').  The intent is that this
       program runs a security check to ensure that the system is not
       compromised by an attacker before providing the pass phrase.
+
+exit_on_load_error=1|0 (optional)
+  If a certificate configuration does not result in a working
+  configuration, traffic server is not allowed to start when this is
+  set. If a new configuration is broken, a working configuration will
+  not be replaced.
+
+  Exit on load error is enabled by default.
+
+  This option can not be applied to a running Traffic Server using
+  :option:`traffic_ctl config reload`.
 
 Certificate Selection
 =====================

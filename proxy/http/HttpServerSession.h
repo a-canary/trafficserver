@@ -133,7 +133,7 @@ public:
   IpEndpoint const &
   get_server_ip() const
   {
-    ink_release_assert(server_vc != NULL);
+    ink_release_assert(server_vc != nullptr);
     return server_vc->get_remote_endpoint();
   }
 
@@ -179,6 +179,20 @@ public:
   //   not change the buffer for I/O without issuing a
   //   an asyncronous cancel on NT
   MIOBuffer *read_buffer;
+
+  virtual int
+  populate_protocol(ts::string_view *result, int size) const
+  {
+    auto vc = this->get_netvc();
+    return vc ? vc->populate_protocol(result, size) : 0;
+  }
+
+  virtual const char *
+  protocol_contains(ts::string_view tag_prefix) const
+  {
+    auto vc = this->get_netvc();
+    return vc ? vc->protocol_contains(tag_prefix) : nullptr;
+  }
 
 private:
   HttpServerSession(HttpServerSession &);

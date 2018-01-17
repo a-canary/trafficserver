@@ -45,7 +45,7 @@ get_listen_backlog()
   int listen_backlog;
 
   REC_ReadConfigInteger(listen_backlog, "proxy.config.net.listen_backlog");
-  return listen_backlog >= 0 ? listen_backlog : ats_tcp_somaxconn();
+  return (0 < listen_backlog && listen_backlog <= 65535) ? listen_backlog : ats_tcp_somaxconn();
 }
 
 //
@@ -74,8 +74,9 @@ Server::accept(Connection *c)
   socklen_t sz = sizeof(c->addr);
 
   res = socketManager.accept4(fd, &c->addr.sa, &sz, SOCK_NONBLOCK | SOCK_CLOEXEC);
-  if (res < 0)
+  if (res < 0) {
     return res;
+  }
   c->fd = res;
   if (is_debug_tag_set("iocore_net_server")) {
     ip_port_text_buffer ipb1, ipb2;
@@ -262,7 +263,6 @@ Lerror:
   // coverity[check_after_sink]
   if (fd != NO_FD) {
     close();
-    fd = NO_FD;
   }
 
   return res;

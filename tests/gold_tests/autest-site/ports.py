@@ -18,6 +18,10 @@
 
 import socket
 import subprocess
+import os
+import platform
+
+import hosts.output as host
 
 try:
     import queue as Queue
@@ -55,11 +59,27 @@ def setup_port_queue(amount=1000):
     else:
         return
     try:
-        dmin, dmax = subprocess.check_output(
-            ["sysctl", "net.ipv4.ip_local_port_range"]).decode().split("=")[1].split()
+        # some docker setups don't have sbin setup correctly
+        new_env = os.environ.copy()
+        new_env['PATH'] = "/sbin:/usr/sbin:" + new_env['PATH']
+        if 'Darwin' == platform.system():
+            dmin = subprocess.check_output(
+                ["sysctl", "net.inet.ip.portrange.first"],
+                env=new_env
+            ).decode().split(":")[1].split()[0]
+            dmax = subprocess.check_output(
+                ["sysctl", "net.inet.ip.portrange.last"],
+                env=new_env
+            ).decode().split(":")[1].split()[0]
+        else:
+            dmin, dmax = subprocess.check_output(
+                ["sysctl", "net.ipv4.ip_local_port_range"],
+                env=new_env
+            ).decode().split("=")[1].split()
         dmin = int(dmin)
         dmax = int(dmax)
     except:
+        host.WriteWarning("Unable to call sysctrl!\n Tests may fail because of bad port selection!")
         return
 
     rmin = dmin - 2000
@@ -80,6 +100,7 @@ def setup_port_queue(amount=1000):
             if not PortOpen(port):
                 g_ports.put(port)
             port += 1
+
 
 def get_port(obj, name):
     '''

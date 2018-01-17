@@ -38,6 +38,9 @@
 #include "P_SSLNextProtocolAccept.h"
 #include "ProtocolProbeSessionAccept.h"
 #include "http2/Http2SessionAccept.h"
+#include "HttpConnectionCount.h"
+
+#include <vector>
 
 HttpSessionAccept *plugin_http_accept             = nullptr;
 HttpSessionAccept *plugin_http_transparent_accept = nullptr;
@@ -104,7 +107,7 @@ struct HttpProxyAcceptor {
     @c SSLNextProtocolAccept is a subclass of @c Cont instead of @c
     HttpAccept.
 */
-Vec<HttpProxyAcceptor> HttpProxyAcceptors;
+std::vector<HttpProxyAcceptor> HttpProxyAcceptors;
 
 // Called from InkAPI.cc
 NetProcessor::AcceptOptions
@@ -222,20 +225,26 @@ MakeHttpProxyAcceptor(HttpProxyAcceptor &acceptor, HttpProxyPort &port, unsigned
   }
 }
 
+/// Do all pre-thread initialization / setup.
+void
+init_HttpProxyServer()
+{
+  httpSessionManager.init();
+}
+
 /** Set up all the accepts and sockets.
  */
 void
-init_HttpProxyServer(int n_accept_threads)
+init_accept_HttpProxyServer(int n_accept_threads)
 {
   HttpProxyPort::Group &proxy_ports = HttpProxyPort::global();
 
   init_reverse_proxy();
-  httpSessionManager.init();
   http_pages_init();
 
 #ifdef USE_HTTP_DEBUG_LISTS
-  ink_mutex_init(&debug_sm_list_mutex, "HttpSM Debug List");
-  ink_mutex_init(&debug_cs_list_mutex, "HttpCS Debug List");
+  ink_mutex_init(&debug_sm_list_mutex);
+  ink_mutex_init(&debug_cs_list_mutex);
 #endif
 
   // Used to give plugins the ability to create http requests
@@ -258,8 +267,10 @@ init_HttpProxyServer(int n_accept_threads)
   }
 
   // Do the configuration defined ports.
-  for (int i = 0, n = proxy_ports.length(); i < n; ++i) {
-    MakeHttpProxyAcceptor(HttpProxyAcceptors.add(), proxy_ports[i], n_accept_threads);
+  // Assign temporary empty objects of proxy ports size
+  HttpProxyAcceptors.assign(proxy_ports.size(), HttpProxyAcceptor());
+  for (int i = 0, n = proxy_ports.size(); i < n; ++i) {
+    MakeHttpProxyAcceptor(HttpProxyAcceptors.at(i), proxy_ports[i], n_accept_threads);
   }
 }
 
@@ -274,9 +285,9 @@ start_HttpProxyServer()
   ///////////////////////////////////
 
   ink_assert(!called_once);
-  ink_assert(proxy_ports.length() == HttpProxyAcceptors.length());
+  ink_assert(proxy_ports.size() == HttpProxyAcceptors.size());
 
-  for (int i = 0, n = proxy_ports.length(); i < n; ++i) {
+  for (int i = 0, n = proxy_ports.size(); i < n; ++i) {
     HttpProxyAcceptor &acceptor = HttpProxyAcceptors[i];
     HttpProxyPort &port         = proxy_ports[i];
     if (port.isSSL()) {
@@ -297,6 +308,9 @@ start_HttpProxyServer()
     init_http_update_test();
   }
 #endif
+
+  // Set up stat page for http connection count
+  statPagesManager.register_http("connection_count", register_ShowConnectionCount);
 
   // Alert plugins that connections will be accepted.
   APIHook *hook = lifecycle_hooks->get(TS_LIFECYCLE_PORTS_READY_HOOK);
@@ -320,4 +334,11 @@ start_HttpProxyServerBackDoor(int port, int accept_threads)
 
   // The backdoor only binds the loopback interface
   netProcessor.main_accept(new HttpSessionAccept(ha_opt), NO_FD, opt);
+}
+
+void
+stop_HttpProxyServer()
+{
+  sslNetProcessor.stop_accept();
+  netProcessor.stop_accept();
 }

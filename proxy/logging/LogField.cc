@@ -201,6 +201,8 @@ static const milestone milestones[] = {
   {"TS_MILESTONE_SM_FINISH", TS_MILESTONE_SM_FINISH},
   {"TS_MILESTONE_PLUGIN_ACTIVE", TS_MILESTONE_PLUGIN_ACTIVE},
   {"TS_MILESTONE_PLUGIN_TOTAL", TS_MILESTONE_PLUGIN_TOTAL},
+  {"TS_MILESTONE_TLS_HANDSHAKE_START", TS_MILESTONE_TLS_HANDSHAKE_START},
+  {"TS_MILESTONE_TLS_HANDSHAKE_END", TS_MILESTONE_TLS_HANDSHAKE_END},
 };
 
 void
@@ -772,7 +774,9 @@ LogFieldList::marshal_len(LogAccess *lad)
   int bytes = 0;
   for (LogField *f = first(); f; f = next(f)) {
     if (f->type() != LogField::sINT) {
-      bytes += f->marshal_len(lad);
+      const int len = f->marshal_len(lad);
+      ink_release_assert(len >= INK_MIN_ALIGN);
+      bytes += len;
     }
   }
   return m_marshal_len + bytes;

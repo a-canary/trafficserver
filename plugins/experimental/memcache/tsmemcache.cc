@@ -39,9 +39,9 @@ ClassAllocator<MC> theMCAllocator("MC");
 static time_t base_day_time;
 
 // These should be persistent.
-volatile int32_t MC::verbosity     = 0;
-volatile ink_hrtime MC::last_flush = 0;
-volatile int64_t MC::next_cas      = 1;
+int32_t MC::verbosity     = 0;
+ink_hrtime MC::last_flush = 0;
+int64_t MC::next_cas      = 1;
 
 static void
 tsmemcache_constants()
@@ -388,11 +388,13 @@ MC::write_binary_response(const void *d, int hlen, int keylen, int dlen)
       case VC_EVENT_EOS:                             \
         if ((VIO *)data == rvio)                     \
           break;                                     \
+      /* fallthrough */                              \
       case VC_EVENT_READ_READY:                      \
         return EVENT_CONT;                           \
       case VC_EVENT_WRITE_READY:                     \
         if (wvio->buffer.reader()->read_avail() > 0) \
           return EVENT_CONT;                         \
+      /* fallthrough */                              \
       case VC_EVENT_WRITE_COMPLETE:                  \
         return EVENT_DONE;                           \
       default:                                       \

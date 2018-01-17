@@ -24,15 +24,15 @@
 #include "ts/Map.h"
 #include <list>
 
-typedef const char cchar;
+using cchar = const char;
 
 struct Item {
   LINK(Item, m_link);
   struct Hash {
-    typedef uint32_t ID;
-    typedef uint32_t Key;
-    typedef Item Value;
-    typedef DList(Item, m_link) ListHead;
+    using ID       = uint32_t;
+    using Key      = uint32_t;
+    using Value    = Item;
+    using ListHead = DLL<Item, Item::Link_m_link>;
 
     static ID
     hash(Key key)
@@ -61,7 +61,7 @@ Item::Hash::equal(Key lhs, Key rhs)
   return lhs == rhs;
 }
 
-typedef TSHashTable<Item::Hash> Table;
+using Table = TSHashTable<Item::Hash>;
 
 void
 test_TSHashTable()
@@ -87,10 +87,11 @@ test_TSHashTable()
   ink_assert(!(t.find(N * 2).isValid()));
 
   loc = t.find(N / 2 | 1);
-  if (loc)
+  if (loc) {
     t.remove(loc);
-  else
+  } else {
     ink_assert(!"Did not find expected value");
+  }
 
   if (!loc) {
     ; // compiler check.
@@ -104,10 +105,11 @@ test_TSHashTable()
 
   for (uint32_t i = 1; i <= N; ++i) {
     Table::Location l = t.find(i);
-    if (1 & i)
+    if (1 & i) {
       ink_assert(!l.isValid());
-    else
+    } else {
       ink_assert(l.isValid());
+    }
   }
 
   int n = 0;
@@ -122,11 +124,31 @@ test_TSHashTable()
   }
 }
 
+class testHashMap
+{
+private:
+  HashMap<cchar *, StringHashFns, int> testsh;
+
+public:
+  int
+  get(cchar *ch) const
+  {
+    return testsh.get(ch);
+  }
+
+  void
+  put(cchar *key, int v)
+  {
+    testsh.put(key, v);
+  }
+};
+
 int
 main(int /* argc ATS_UNUSED */, char ** /*argv ATS_UNUSED */)
 {
   typedef Map<cchar *, cchar *> SSMap;
   typedef MapElem<cchar *, cchar *> SSMapElem;
+  testHashMap testsh;
 #define form_SSMap(_p, _v) form_Map(SSMapElem, _p, _v)
   SSMap ssm;
   ssm.put("a", "A");
@@ -171,8 +193,11 @@ main(int /* argc ATS_UNUSED */, char ** /*argv ATS_UNUSED */)
   HashMap<cchar *, StringHashFns, int> sh2(-99); // return -99 if key not found
   sh2.put("aa", 15);
   sh2.put("ab", 16);
+  testsh.put("aa", 15);
+  testsh.put("ab", 16);
   ink_assert(sh2.get("aa") == 15);
   ink_assert(sh2.get("ac") == -99);
+  ink_assert(testsh.get("aa") == 15);
   test_TSHashTable();
 
   printf("test_Map PASSED\n");

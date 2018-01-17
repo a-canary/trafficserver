@@ -33,7 +33,7 @@
 class Http2Stream;
 class Http2ConnectionState;
 
-typedef Http2DependencyTree<Http2Stream *> DependencyTree;
+typedef Http2DependencyTree::Tree<Http2Stream *> DependencyTree;
 
 class Http2Stream : public ProxyClientTransaction
 {
@@ -63,7 +63,7 @@ public:
   ~Http2Stream() { this->destroy(); }
   int main_event_handler(int event, void *edata);
 
-  void destroy();
+  void destroy() override;
 
   bool
   is_body_done() const
@@ -81,10 +81,17 @@ public:
   update_sent_count(unsigned num_bytes)
   {
     bytes_sent += num_bytes;
+    this->write_vio.ndone += num_bytes;
   }
 
   Http2StreamId
   get_id() const
+  {
+    return _id;
+  }
+
+  int
+  get_transaction_id() const override
   {
     return _id;
   }
@@ -135,25 +142,33 @@ public:
     return content_length == 0 || content_length == data_length;
   }
 
-  Http2ErrorCode decode_header_blocks(HpackHandle &hpack_handle);
+  Http2ErrorCode decode_header_blocks(HpackHandle &hpack_handle, uint32_t maximum_table_size);
   void send_request(Http2ConnectionState &cstate);
-  VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf);
-  VIO *do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *abuffer, bool owner = false);
-  void do_io_close(int lerrno = -1);
+  VIO *do_io_read(Continuation *c, int64_t nbytes, MIOBuffer *buf) override;
+  VIO *do_io_write(Continuation *c, int64_t nbytes, IOBufferReader *abuffer, bool owner = false) override;
+  void do_io_close(int lerrno = -1) override;
   void initiating_close();
-  void do_io_shutdown(ShutdownHowTo_t) {}
+  void terminate_if_possible();
+  void do_io_shutdown(ShutdownHowTo_t) override {}
   void update_read_request(int64_t read_len, bool send_update);
   bool update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
-  void reenable(VIO *vio);
-  virtual void transaction_done();
+  void reenable(VIO *vio) override;
+  virtual void transaction_done() override;
+  virtual bool
+  ignore_keep_alive() override
+  {
+    // If we return true here, Connection header will always be "close".
+    // It should be handled as the same as HTTP/1.1
+    return false;
+  }
+
+  void restart_sending();
   void send_response_body();
-  void push_promise(URL &url);
+  void push_promise(URL &url, const MIMEField *accept_encoding);
 
   // Stream level window size
   ssize_t client_rwnd;
   ssize_t server_rwnd = Http2::initial_window_size;
-
-  LINK(Http2Stream, link);
 
   uint8_t *header_blocks        = nullptr;
   uint32_t header_blocks_length = 0;  // total length of header blocks (not include
@@ -169,10 +184,10 @@ public:
   bool is_first_transaction_flag = false;
 
   HTTPHdr response_header;
-  IOBufferReader *response_reader     = nullptr;
-  IOBufferReader *request_reader      = nullptr;
-  MIOBuffer request_buffer            = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
-  DependencyTree::Node *priority_node = nullptr;
+  IOBufferReader *response_reader          = nullptr;
+  IOBufferReader *request_reader           = nullptr;
+  MIOBuffer request_buffer                 = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
+  Http2DependencyTree::Node *priority_node = nullptr;
 
   EThread *
   get_thread()
@@ -187,17 +202,17 @@ public:
     return chunked;
   }
 
-  void release(IOBufferReader *r);
+  void release(IOBufferReader *r) override;
 
   virtual bool
-  allow_half_open() const
+  allow_half_open() const override
   {
     return false;
   }
 
-  virtual void set_active_timeout(ink_hrtime timeout_in);
-  virtual void set_inactivity_timeout(ink_hrtime timeout_in);
-  virtual void cancel_inactivity_timeout();
+  virtual void set_active_timeout(ink_hrtime timeout_in) override;
+  virtual void set_inactivity_timeout(ink_hrtime timeout_in) override;
+  virtual void cancel_inactivity_timeout() override;
   void clear_inactive_timer();
   void clear_active_timer();
   void clear_timers();
@@ -217,7 +232,7 @@ public:
   }
 
   bool
-  is_first_transaction() const
+  is_first_transaction() const override
   {
     return is_first_transaction_flag;
   }
@@ -227,28 +242,50 @@ private:
   void response_process_data(bool &is_done);
   bool response_is_data_available() const;
   Event *send_tracked_event(Event *event, int send_event, VIO *vio);
+
   HTTPParser http_parser;
   ink_hrtime _start_time = 0;
   EThread *_thread       = nullptr;
   Http2StreamId _id;
   Http2StreamState _state = Http2StreamState::HTTP2_STREAM_STATE_IDLE;
 
-  MIOBuffer response_buffer;
   HTTPHdr _req_header;
   VIO read_vio;
   VIO write_vio;
 
   bool trailing_header = false;
   bool body_done       = false;
-  bool closed          = false;
-  bool sent_delete     = false;
   bool chunked         = false;
+
+  // A brief disucssion of similar flags and state variables:  _state, closed, terminate_stream
+  //
+  // _state tracks the HTTP2 state of the stream.  This field completely coincides with the H2 spec.
+  //
+  // closed is a flag that gets set when the framework indicates that the stream should be shutdown.  This flag
+  // is set from either do_io_close, which indicates that the HttpSM is starting the close, or initiating_close,
+  // which indicates that the HTTP2 infrastructure is starting the close (e.g. due to the HTTP2 session shuttig down
+  // or a end of stream frame being received.  The closed flag does not indicate that it is safe to delete the stream
+  // immediately. Perhaps the closed flag could be folded into the _state field.
+  //
+  // terminate_stream flag gets set from the transaction_done() method.  This means that the HttpSM has shutdown.  Now
+  // we can delete the stream object.  To ensure that the session and transaction close hooks are executed in the correct order
+  // we need to enforce that the stream is not deleted until after the state machine has shutdown.  The reentrancy_count is
+  // associated with the terminate_stream flag.  We need to make sure that we don't delete the stream object while we have stream
+  // methods on the stack.  The reentrancy count is incremented as we enter the stream event handler.  As we leave the event
+  // handler we decrement the reentrancy count, and check to see if the teriminate_stream flag and destroy the object if that is the
+  // case.
+  // The same pattern is used with HttpSM for object clean up.
+  //
+  bool closed           = false;
+  int reentrancy_count  = 0;
+  bool terminate_stream = false;
 
   uint64_t data_length = 0;
   uint64_t bytes_sent  = 0;
 
   ChunkedHandler chunked_handler;
-  Event *cross_thread_event = nullptr;
+  Event *cross_thread_event      = nullptr;
+  Event *buffer_full_write_event = nullptr;
 
   // Support stream-specific timeouts
   ink_hrtime active_timeout = 0;

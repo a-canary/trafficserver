@@ -149,7 +149,6 @@
 
 class EThread;
 typedef EThread *EThreadPtr;
-typedef volatile EThreadPtr VolatileEThreadPtr;
 
 #if DEBUG
 inkcoreapi extern void lock_waiting(const SourceLocation &, const char *handler);
@@ -203,7 +202,7 @@ public:
     lock.  You must not modify or set this value directly.
 
   */
-  volatile EThreadPtr thread_holding;
+  EThreadPtr thread_holding;
 
   int nthread_holding;
 
@@ -270,7 +269,7 @@ public:
   void
   init(const char *name = "UnnamedMutex")
   {
-    ink_mutex_init(&the_mutex, name);
+    ink_mutex_init(&the_mutex);
   }
 };
 

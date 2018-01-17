@@ -31,6 +31,7 @@
 #include "MgmtSocket.h"
 #include "ts/ink_cap.h"
 #include "FileManager.h"
+#include <ts/string_view.h>
 
 #if TS_USE_POSIX_CAP
 #include <sys/capability.h>
@@ -147,22 +148,14 @@ LocalManager::processRunning()
   }
 }
 
-LocalManager::LocalManager(bool proxy_on) : BaseManager(), run_proxy(proxy_on), configFiles(nullptr)
+LocalManager::LocalManager(bool proxy_on) : BaseManager(), run_proxy(proxy_on)
 {
   bool found;
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
-  ats_scoped_str bindir(RecConfigReadBinDir());
-  ats_scoped_str sysconfdir(RecConfigReadConfigDir());
+  std::string rundir(RecConfigReadRuntimeDir());
+  std::string bindir(RecConfigReadBinDir());
+  std::string sysconfdir(RecConfigReadConfigDir());
 
-  syslog_facility = 0;
-
-  proxy_recoverable         = true;
-  proxy_started_at          = -1;
-  proxy_launch_count        = 0;
-  manager_started_at        = time(nullptr);
-  proxy_launch_outstanding  = false;
-  mgmt_shutdown_outstanding = MGMT_PENDING_NONE;
-  proxy_running             = 0;
+  manager_started_at = time(nullptr);
 
   RecRegisterStatInt(RECT_NODE, "proxy.node.proxy_running", 0, RECP_NON_PERSISTENT);
 
@@ -176,8 +169,8 @@ LocalManager::LocalManager(bool proxy_on) : BaseManager(), run_proxy(proxy_on), 
   // Get the default IP binding values.
   RecHttpLoadIp("proxy.local.incoming_ip_to_bind", m_inbound_ip4, m_inbound_ip6);
 
-  if (access(sysconfdir, R_OK) == -1) {
-    mgmt_log("[LocalManager::LocalManager] unable to access() directory '%s': %d, %s\n", (const char *)sysconfdir, errno,
+  if (access(sysconfdir.c_str(), R_OK) == -1) {
+    mgmt_log("[LocalManager::LocalManager] unable to access() directory '%s': %d, %s\n", sysconfdir.c_str(), errno,
              strerror(errno));
     mgmt_fatal(0, "[LocalManager::LocalManager] please set the 'TS_ROOT' environment variable\n");
   }
@@ -212,22 +205,15 @@ LocalManager::LocalManager(bool proxy_on) : BaseManager(), run_proxy(proxy_on), 
   proxy_name                   = REC_readString("proxy.config.proxy_name", &found);
   proxy_binary                 = REC_readString("proxy.config.proxy_binary", &found);
   env_prep                     = REC_readString("proxy.config.env_prep", &found);
-  proxy_options                = nullptr;
 
   // Calculate proxy_binary from the absolute bin_path
-  absolute_proxy_binary = Layout::relative_to(bindir, proxy_binary);
+  absolute_proxy_binary = ats_stringdup(Layout::relative_to(bindir, proxy_binary));
 
   // coverity[fs_check_call]
   if (access(absolute_proxy_binary, R_OK | X_OK) == -1) {
     mgmt_log("[LocalManager::LocalManager] Unable to access() '%s': %d, %s\n", absolute_proxy_binary, errno, strerror(errno));
     mgmt_fatal(0, "[LocalManager::LocalManager] please set bin path 'proxy.config.bin_path' \n");
   }
-
-  watched_process_pid = -1;
-
-  process_server_sockfd = -1;
-  watched_process_fd    = -1;
-  proxy_launch_pid      = -1;
 
   return;
 }
@@ -255,8 +241,8 @@ LocalManager::initAlarm()
 void
 LocalManager::initMgmtProcessServer()
 {
-  ats_scoped_str rundir(RecConfigReadRuntimeDir());
-  ats_scoped_str sockpath(Layout::relative_to(rundir, LM_CONNECTION_SERVER));
+  std::string rundir(RecConfigReadRuntimeDir());
+  std::string sockpath(Layout::relative_to(rundir, LM_CONNECTION_SERVER));
   mode_t oldmask = umask(0);
 
 #if TS_HAS_WCCP
@@ -266,9 +252,9 @@ LocalManager::initMgmtProcessServer()
   }
 #endif
 
-  process_server_sockfd = bind_unix_domain_socket(sockpath, 00700);
+  process_server_sockfd = bind_unix_domain_socket(sockpath.c_str(), 00700);
   if (process_server_sockfd == -1) {
-    mgmt_fatal(errno, "[LocalManager::initMgmtProcessServer] failed to bind socket at %s\n", (const char *)sockpath);
+    mgmt_fatal(errno, "[LocalManager::initMgmtProcessServer] failed to bind socket at %s\n", sockpath.c_str());
   }
 
   umask(oldmask);
@@ -595,7 +581,7 @@ LocalManager::sendMgmtMsgToProcesses(MgmtMessageHdr *mh)
   case MGMT_EVENT_CONFIG_FILE_UPDATE:
   case MGMT_EVENT_CONFIG_FILE_UPDATE_NO_INC_VERSION:
     bool found;
-    char *fname;
+    char *fname = nullptr;
     Rollback *rb;
     char *data_raw;
 
@@ -609,8 +595,9 @@ LocalManager::sendMgmtMsgToProcesses(MgmtMessageHdr *mh)
       mgmt_log("[LocalManager:sendMgmtMsgToProcesses] Unknown file change: '%s'\n", data_raw);
     }
     ink_assert(found);
-    if (!(configFiles && configFiles->getRollbackObj(fname, &rb)) &&
-        (strcmp(data_raw, "proxy.config.body_factory.template_sets_dir") != 0)) {
+    if (!(fname && configFiles && configFiles->getRollbackObj(fname, &rb)) &&
+        (strcmp(data_raw, "proxy.config.body_factory.template_sets_dir") != 0) &&
+        (strcmp(data_raw, "proxy.config.ssl.server.ticket_key.filename") != 0)) {
       mgmt_fatal(0, "[LocalManager::sendMgmtMsgToProcesses] "
                     "Invalid 'data_raw' for MGMT_EVENT_CONFIG_FILE_UPDATE\n");
     }
@@ -748,7 +735,7 @@ LocalManager::processEventQueue()
         ink_assert(enqueue(mgmt_event_queue, mh));
         return;
       }
-      Debug("lm", "[TrafficManager] ==> Sending signal event '%d' payload=%d", mh->msg_id, mh->data_len);
+      Debug("lm", "[TrafficManager] ==> Sending signal event '%d' %s payload=%d", mh->msg_id, data_raw, mh->data_len);
       lmgmt->sendMgmtMsgToProcesses(mh);
     }
     ats_free(mh);
@@ -805,9 +792,9 @@ LocalManager::startProxy(const char *onetime_options)
       int res;
 
       char env_prep_bin[MAXPATHLEN];
-      ats_scoped_str bindir(RecConfigReadBinDir());
+      std::string bindir(RecConfigReadBinDir());
 
-      ink_filepath_make(env_prep_bin, sizeof(env_prep_bin), bindir, env_prep);
+      ink_filepath_make(env_prep_bin, sizeof(env_prep_bin), bindir.c_str(), env_prep);
       res = execl(env_prep_bin, env_prep_bin, (char *)nullptr);
       _exit(res);
     }
@@ -847,7 +834,7 @@ LocalManager::startProxy(const char *onetime_options)
 
     // Check if we need to pass down port/fd information to
     // traffic_server by seeing if there are any open ports.
-    for (int i = 0, limit = m_proxy_ports.length(); !open_ports_p && i < limit; ++i) {
+    for (int i = 0, limit = m_proxy_ports.size(); !open_ports_p && i < limit; ++i) {
       if (ts::NO_FD != m_proxy_ports[i].m_fd) {
         open_ports_p = true;
       }
@@ -858,7 +845,7 @@ LocalManager::startProxy(const char *onetime_options)
       bool need_comma_p = false;
 
       ink_strlcat(real_proxy_options, " --httpport ", OPTIONS_SIZE);
-      for (int i = 0, limit = m_proxy_ports.length(); i < limit; ++i) {
+      for (int i = 0, limit = m_proxy_ports.size(); i < limit; ++i) {
         HttpProxyPort &p = m_proxy_ports[i];
         if (ts::NO_FD != p.m_fd) {
           if (need_comma_p) {
@@ -896,7 +883,7 @@ LocalManager::startProxy(const char *onetime_options)
 void
 LocalManager::closeProxyPorts()
 {
-  for (int i = 0, n = lmgmt->m_proxy_ports.length(); i < n; ++i) {
+  for (int i = 0, n = lmgmt->m_proxy_ports.size(); i < n; ++i) {
     HttpProxyPort &p = lmgmt->m_proxy_ports[i];
     if (ts::NO_FD != p.m_fd) {
       close_socket(p.m_fd);
@@ -916,7 +903,7 @@ LocalManager::listenForProxy()
   }
 
   // We are not already bound, bind the port
-  for (int i = 0, n = lmgmt->m_proxy_ports.length(); i < n; ++i) {
+  for (int i = 0, n = lmgmt->m_proxy_ports.size(); i < n; ++i) {
     HttpProxyPort &p = lmgmt->m_proxy_ports[i];
     if (ts::NO_FD == p.m_fd) {
       this->bindProxyPort(p);
@@ -924,14 +911,14 @@ LocalManager::listenForProxy()
 
     // read backlong configuration value and overwrite the default value if found
     bool found;
-    ts::StringView fam{ats_ip_family_name(p.m_family)};
+    ts::string_view fam{ats_ip_family_name(p.m_family)};
     RecInt backlog = REC_readInteger("proxy.config.net.listen_backlog", &found);
     backlog        = (found && backlog >= 0) ? backlog : ats_tcp_somaxconn();
 
     if ((listen(p.m_fd, backlog)) < 0) {
-      mgmt_fatal(errno, "[LocalManager::listenForProxy] Unable to listen on port: %d (%.*s)\n", p.m_port, fam.size(), fam.ptr());
+      mgmt_fatal(errno, "[LocalManager::listenForProxy] Unable to listen on port: %d (%.*s)\n", p.m_port, fam.size(), fam.data());
     }
-    mgmt_log("[LocalManager::listenForProxy] Listening on port: %d (%.*s)\n", p.m_port, fam.size(), fam.ptr());
+    mgmt_log("[LocalManager::listenForProxy] Listening on port: %d (%.*s)\n", p.m_port, fam.size(), fam.data());
   }
   return;
 }

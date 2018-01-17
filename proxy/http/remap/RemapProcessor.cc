@@ -30,7 +30,7 @@ int
 RemapProcessor::start(int num_threads, size_t stacksize)
 {
   if (_use_separate_remap_thread) {
-    ET_REMAP = eventProcessor.spawn_event_threads(num_threads, "ET_REMAP", stacksize); // ET_REMAP is a class member
+    ET_REMAP = eventProcessor.spawn_event_threads("ET_REMAP", num_threads, stacksize); // ET_REMAP is a class member
   }
 
   return 0;
@@ -78,7 +78,6 @@ RemapProcessor::setup_for_remap(HttpTransact::State *s)
   request_host  = request_header->host_get(&request_host_len);
   request_port  = request_header->port_get();
   proxy_request = request_header->is_target_in_url() || !s->reverse_proxy;
-
   // Default to empty host.
   if (!request_host) {
     request_host     = "";
@@ -227,7 +226,8 @@ RemapProcessor::finish_remap(HttpTransact::State *s)
       if (*redirect_url == nullptr) {
         *redirect_url = ats_strdup(map->filter_redirect_url ? map->filter_redirect_url : rewrite_table->http_default_redirect_url);
       }
-
+      if (HTTP_STATUS_NONE == s->http_return_code)
+        s->http_return_code = HTTP_STATUS_MOVED_TEMPORARILY;
       return false;
     }
   }
@@ -243,8 +243,9 @@ RemapProcessor::finish_remap(HttpTransact::State *s)
     if (is_debug_tag_set("url_rewrite")) {
       int old_host_hdr_len;
       char *old_host_hdr = (char *)request_header->value_get(MIME_FIELD_HOST, MIME_LEN_HOST, &old_host_hdr_len);
-      if (old_host_hdr)
+      if (old_host_hdr) {
         Debug("url_rewrite", "Host: Header before rewrite %.*s", old_host_hdr_len, old_host_hdr);
+      }
     }
     //
     // Create the new host header field being careful that our

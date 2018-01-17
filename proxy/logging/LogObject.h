@@ -33,7 +33,7 @@
 #include "LogBuffer.h"
 #include "LogAccess.h"
 #include "LogFilter.h"
-#include "ts/Vec.h"
+#include <vector>
 
 /*-------------------------------------------------------------------------
   LogObject
@@ -119,7 +119,7 @@ public:
     m_flags |= LOG_OBJECT_FMT_TIMESTAMP;
   }
 
-  int log(LogAccess *lad, const char *text_entry = NULL);
+  int log(LogAccess *lad, const char *text_entry = nullptr);
   int va_log(LogAccess *lad, const char *fmt, va_list ap);
 
   unsigned roll_files(long time_now = 0);
@@ -259,11 +259,10 @@ public:
   inline void
   force_new_buffer()
   {
-    _checkout_write(NULL, 0);
+    _checkout_write(nullptr, 0);
   }
 
   bool operator==(LogObject &rhs);
-  int do_filesystem_checks();
 
 public:
   bool m_auto_created;
@@ -295,7 +294,7 @@ private:
   long m_last_roll_time;   // the last time this object rolled
   // its files
 
-  volatile head_p m_log_buffer; // current work buffer
+  head_p m_log_buffer; // current work buffer
   unsigned m_buffer_manager_idx;
   LogBufferManager *m_buffer_manager;
 
@@ -306,10 +305,13 @@ private:
 
   LogBuffer *_checkout_write(size_t *write_offset, size_t write_size);
 
+  // noncopyable
+  LogObject(const LogObject &) = delete;
+  LogObject &operator=(const LogObject &) = delete;
+
 private:
   // -- member functions not allowed --
   LogObject();
-  LogObject &operator=(const LogObject &);
 };
 
 /*-------------------------------------------------------------------------
@@ -350,7 +352,7 @@ public:
   };
 
 private:
-  typedef Vec<LogObject *> LogObjectList;
+  typedef std::vector<LogObject *> LogObjectList;
 
   LogObjectList _objects;    // array of configured objects
   LogObjectList _APIobjects; // array of API objects
@@ -406,12 +408,12 @@ public:
   bool
   has_api_objects() const
   {
-    return _APIobjects.length() > 0;
+    return _APIobjects.size() > 0;
   }
   unsigned
   get_num_objects() const
   {
-    return _objects.length();
+    return _objects.size();
   }
   unsigned get_num_collation_clients() const;
 };

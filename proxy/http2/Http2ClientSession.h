@@ -28,7 +28,7 @@
 #include "Plugin.h"
 #include "ProxyClientSession.h"
 #include "Http2ConnectionState.h"
-#include <ts/MemView.h>
+#include <ts/string_view.h>
 #include <ts/ink_inet.h>
 
 // Name                       Edata                 Description
@@ -143,10 +143,11 @@ public:
     }
   }
 
-private:
-  Http2Frame(Http2Frame &);                  // noncopyable
-  Http2Frame &operator=(const Http2Frame &); // noncopyable
+  // noncopyable
+  Http2Frame(Http2Frame &) = delete;
+  Http2Frame &operator=(const Http2Frame &) = delete;
 
+private:
   Http2FrameHeader hdr;       // frame header
   Ptr<IOBufferBlock> ioblock; // frame payload
   IOBufferReader *ioreader;
@@ -259,7 +260,7 @@ public:
   }
 
   virtual int
-  populate_protocol(ts::StringView *result, int size) const override
+  populate_protocol(ts::string_view *result, int size) const override
   {
     int retval = 0;
     if (size > retval) {
@@ -272,12 +273,12 @@ public:
   }
 
   virtual const char *
-  protocol_contains(ts::StringView prefix) const override
+  protocol_contains(ts::string_view prefix) const override
   {
     const char *retval = nullptr;
 
-    if (prefix.size() <= IP_PROTO_TAG_HTTP_2_0.size() && strncmp(IP_PROTO_TAG_HTTP_2_0.ptr(), prefix.ptr(), prefix.size()) == 0) {
-      retval = IP_PROTO_TAG_HTTP_2_0.ptr();
+    if (prefix.size() <= IP_PROTO_TAG_HTTP_2_0.size() && strncmp(IP_PROTO_TAG_HTTP_2_0.data(), prefix.data(), prefix.size()) == 0) {
+      retval = IP_PROTO_TAG_HTTP_2_0.data();
     } else {
       retval = super::protocol_contains(prefix);
     }
@@ -291,10 +292,37 @@ public:
     return half_close_local;
   }
 
-private:
-  Http2ClientSession(Http2ClientSession &);                  // noncopyable
-  Http2ClientSession &operator=(const Http2ClientSession &); // noncopyable
+  bool
+  is_url_pushed(const char *url, int url_len)
+  {
+    char *dup_url            = ats_strndup(url, url_len);
+    InkHashTableEntry *entry = ink_hash_table_lookup_entry(h2_pushed_urls, dup_url);
+    ats_free(dup_url);
+    return entry != nullptr;
+  }
 
+  void
+  add_url_to_pushed_table(const char *url, int url_len)
+  {
+    if (h2_pushed_urls_size < Http2::push_diary_size) {
+      char *dup_url = ats_strndup(url, url_len);
+      ink_hash_table_insert(h2_pushed_urls, dup_url, nullptr);
+      h2_pushed_urls_size++;
+      ats_free(dup_url);
+    }
+  }
+
+  int64_t
+  write_buffer_size()
+  {
+    return write_buffer->max_read_avail();
+  }
+
+  // noncopyable
+  Http2ClientSession(Http2ClientSession &) = delete;
+  Http2ClientSession &operator=(const Http2ClientSession &) = delete;
+
+private:
   int main_event_handler(int, void *);
 
   int state_read_connection_preface(int, void *);
@@ -327,6 +355,9 @@ private:
   bool kill_me          = false;
   bool half_close_local = false;
   int recursion         = 0;
+
+  InkHashTable *h2_pushed_urls = nullptr;
+  uint32_t h2_pushed_urls_size = 0;
 };
 
 extern ClassAllocator<Http2ClientSession> http2ClientSessionAllocator;

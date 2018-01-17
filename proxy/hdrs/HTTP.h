@@ -43,6 +43,7 @@ enum HTTPStatus {
 
   HTTP_STATUS_CONTINUE           = 100,
   HTTP_STATUS_SWITCHING_PROTOCOL = 101,
+  HTTP_STATUS_EARLY_HINTS        = 103,
 
   HTTP_STATUS_OK                            = 200,
   HTTP_STATUS_CREATED                       = 201,
@@ -59,6 +60,7 @@ enum HTTPStatus {
   HTTP_STATUS_NOT_MODIFIED       = 304,
   HTTP_STATUS_USE_PROXY          = 305,
   HTTP_STATUS_TEMPORARY_REDIRECT = 307,
+  HTTP_STATUS_PERMANENT_REDIRECT = 308,
 
   HTTP_STATUS_BAD_REQUEST                   = 400,
   HTTP_STATUS_UNAUTHORIZED                  = 401,
@@ -486,11 +488,12 @@ public:
   HTTPHdrImpl *m_http = nullptr;
   // This is all cached data and so is mutable.
   mutable URL m_url_cached;
-  mutable MIMEField *m_host_mime = nullptr;
-  mutable int m_host_length      = 0;     ///< Length of hostname.
-  mutable int m_port             = 0;     ///< Target port.
-  mutable bool m_target_cached   = false; ///< Whether host name and port are cached.
-  mutable bool m_target_in_url   = false; ///< Whether host name and port are in the URL.
+  mutable MIMEField *m_host_mime       = nullptr;
+  mutable int m_host_length            = 0;     ///< Length of hostname.
+  mutable int m_port                   = 0;     ///< Target port.
+  mutable bool m_target_cached         = false; ///< Whether host name and port are cached.
+  mutable bool m_target_in_url         = false; ///< Whether host name and port are in the URL.
+  mutable bool m_100_continue_required = false; ///< Whether 100_continue is in the Expect header.
   /// Set if the port was effectively specified in the header.
   /// @c true if the target (in the URL or the HOST field) also specified
   /// a port. That is, @c true if whatever source had the target host
@@ -640,11 +643,11 @@ protected:
 
   static Arena *const USE_HDR_HEAP_MAGIC;
 
-private:
   // No gratuitous copies!
-  HTTPHdr(const HTTPHdr &m);
-  HTTPHdr &operator=(const HTTPHdr &m);
+  HTTPHdr(const HTTPHdr &m) = delete;
+  HTTPHdr &operator=(const HTTPHdr &m) = delete;
 
+private:
   friend class UrlPrintHack; // don't ask.
 };
 
@@ -1336,7 +1339,7 @@ struct HTTPCacheAlt {
   /// for the last fragment.
   FragOffset *m_frag_offsets;
   /// # of fragment offsets built in to object.
-  static int const N_INTEGRAL_FRAG_OFFSETS = 4;
+  static int constexpr N_INTEGRAL_FRAG_OFFSETS = 4;
   /// Integral fragment offset table.
   FragOffset m_integral_frag_offsets[N_INTEGRAL_FRAG_OFFSETS];
 

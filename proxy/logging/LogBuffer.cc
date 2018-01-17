@@ -55,7 +55,7 @@ enum {
 
 FieldListCacheElement fieldlist_cache[FIELDLIST_CACHE_SIZE];
 int fieldlist_cache_entries = 0;
-vint32 LogBuffer::M_ID      = 0;
+int32_t LogBuffer::M_ID;
 
 /*-------------------------------------------------------------------------
   The following LogBufferHeader routines are used to grab strings out from
@@ -137,7 +137,7 @@ LogBuffer::LogBuffer(LogObject *owner, size_t size, size_t buf_align, size_t wri
   m_state.s.offset = hdr_size;
 
   // update the buffer id (m_id gets the old value)
-  m_id = (uint32_t)ink_atomic_increment((pvint32)&M_ID, 1);
+  m_id = (uint32_t)ink_atomic_increment((int32_t *)&M_ID, 1);
 
   m_expiration_time = LogUtils::timestamp() + Log::config->max_secs_per_buffer;
 
@@ -164,7 +164,7 @@ LogBuffer::LogBuffer(LogObject *owner, LogBufferHeader *header)
 
   // update the buffer id (m_id gets the old value)
   //
-  m_id = (uint32_t)ink_atomic_increment((pvint32)&M_ID, 1);
+  m_id = (uint32_t)ink_atomic_increment((int32_t *)&M_ID, 1);
 
   Debug("log-logbuffer", "[%p] Created repurposed buffer %u for %s at address %p", this_ethread(), m_id,
         m_owner->get_base_filename(), m_buffer);
@@ -511,99 +511,7 @@ LogBuffer::resolve_custom_entry(LogFieldList *fieldlist, char *printf_str, char 
       ++markCount;
       if (field != nullptr) {
         char *to = &write_to[bytes_written];
-
-        // for timestamps that are not aggregates, we take the
-        // value from the function argument;  otherwise we use the
-        // unmarshaling function
-        bool non_aggregate_timestamp = false;
-
-        if (field->aggregate() == LogField::NO_AGGREGATE) {
-          const char *sym = field->symbol();
-
-          if (strcmp(sym, "cqts") == 0) {
-            char *ptr = (char *)&timestamp;
-            res       = LogAccess::unmarshal_int_to_str(&ptr, to, write_to_len - bytes_written);
-            if (buffer_version > 1) {
-              // space was reserved in read buffer; remove it
-              read_from += INK_MIN_ALIGN;
-            }
-
-            non_aggregate_timestamp = true;
-
-          } else if (strcmp(sym, "cqth") == 0) {
-            char *ptr = (char *)&timestamp;
-            res       = LogAccess::unmarshal_int_to_str_hex(&ptr, to, write_to_len - bytes_written);
-            if (buffer_version > 1) {
-              // space was reserved in read buffer; remove it
-              read_from += INK_MIN_ALIGN;
-            }
-
-            non_aggregate_timestamp = true;
-
-          } else if (strcmp(sym, "cqtq") == 0) {
-            // From lib/ts
-            res = squid_timestamp_to_buf(to, write_to_len - bytes_written, timestamp, timestamp_usec);
-            if (res < 0) {
-              res = -1;
-            }
-
-            if (buffer_version > 1) {
-              // space was reserved in read buffer; remove it
-              read_from += INK_MIN_ALIGN;
-            }
-
-            non_aggregate_timestamp = true;
-
-          } else if (strcmp(sym, "cqtn") == 0) {
-            char *str = LogUtils::timestamp_to_netscape_str(timestamp);
-            res       = (int)::strlen(str);
-            if (res < write_to_len - bytes_written) {
-              memcpy(to, str, res);
-            } else {
-              res = -1;
-            }
-            if (buffer_version > 1) {
-              // space was reserved in read buffer; remove it
-              read_from += INK_MIN_ALIGN;
-            }
-
-            non_aggregate_timestamp = true;
-
-          } else if (strcmp(sym, "cqtd") == 0) {
-            char *str = LogUtils::timestamp_to_date_str(timestamp);
-            res       = (int)::strlen(str);
-            if (res < write_to_len - bytes_written) {
-              memcpy(to, str, res);
-            } else {
-              res = -1;
-            }
-            if (buffer_version > 1) {
-              // space was reserved in read buffer; remove it
-              read_from += INK_MIN_ALIGN;
-            }
-
-            non_aggregate_timestamp = true;
-
-          } else if (strcmp(sym, "cqtt") == 0) {
-            char *str = LogUtils::timestamp_to_time_str(timestamp);
-            res       = (int)::strlen(str);
-            if (res < write_to_len - bytes_written) {
-              memcpy(to, str, res);
-            } else {
-              res = -1;
-            }
-            if (buffer_version > 1) {
-              // space was reserved in read buffer; remove it
-              read_from += INK_MIN_ALIGN;
-            }
-
-            non_aggregate_timestamp = true;
-          }
-        }
-
-        if (!non_aggregate_timestamp) {
-          res = field->unmarshal(&read_from, to, write_to_len - bytes_written);
-        }
+        res      = field->unmarshal(&read_from, to, write_to_len - bytes_written);
 
         if (res < 0) {
           Note("%s", buffer_size_exceeded_msg);
@@ -771,7 +679,7 @@ LogBuffer::to_ascii(LogEntryHeader *entry, LogFormatType type, char *buf, int bu
 LogBufferList::LogBufferList()
 {
   m_size = 0;
-  ink_mutex_init(&m_mutex, "LogBufferList");
+  ink_mutex_init(&m_mutex);
 }
 
 /*-------------------------------------------------------------------------

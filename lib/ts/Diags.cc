@@ -44,8 +44,8 @@
 #include "ts/ink_thread.h"
 #include "ts/Diags.h"
 
-int diags_on_for_plugins          = 0;
-bool DiagsConfigState::enabled[2] = {false, false};
+int diags_on_for_plugins         = 0;
+int DiagsConfigState::enabled[2] = {0, 0};
 
 // Global, used for all diagnostics
 inkcoreapi Diags *diags = nullptr;
@@ -110,7 +110,7 @@ Diags::Diags(const char *prefix_string, const char *bdt, const char *bat, BaseLo
   int i;
 
   cleanup_func = nullptr;
-  ink_mutex_init(&tag_table_lock, "Diags::tag_table_lock");
+  ink_mutex_init(&tag_table_lock);
 
   ////////////////////////////////////////////////////////
   // initialize the default, base debugging/action tags //
@@ -257,8 +257,9 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
   // start with the diag level prefix //
   //////////////////////////////////////
 
-  for (s = level_name(diags_level); *s; *end_of_format++ = *s++)
+  for (s = level_name(diags_level); *s; *end_of_format++ = *s++) {
     ;
+  }
 
   *end_of_format++ = ':';
   *end_of_format++ = ' ';
@@ -272,8 +273,9 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
     lp = loc->str(buf, sizeof(buf));
     if (lp) {
       *end_of_format++ = '<';
-      for (s = lp; *s; *end_of_format++ = *s++)
+      for (s = lp; *s; *end_of_format++ = *s++) {
         ;
+      }
       *end_of_format++ = '>';
       *end_of_format++ = ' ';
     }
@@ -284,8 +286,9 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
 
   if (debug_tag) {
     *end_of_format++ = '(';
-    for (s = debug_tag; *s; *end_of_format++ = *s++)
+    for (s = debug_tag; *s; *end_of_format++ = *s++) {
       ;
+    }
     *end_of_format++ = ')';
     *end_of_format++ = ' ';
   }
@@ -293,8 +296,9 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
   // append original format string, and NUL terminate //
   //////////////////////////////////////////////////////
 
-  for (s = format_string; *s; *end_of_format++ = *s++)
+  for (s = format_string; *s; *end_of_format++ = *s++) {
     ;
+  }
   *end_of_format++ = NUL;
 
   //////////////////////////////////////////////////////////////////
@@ -310,19 +314,22 @@ Diags::print_va(const char *debug_tag, DiagsLevel diags_level, const SourceLocat
   d    = format_buf_w_ts;
   *d++ = '[';
 
-  for (int i = 4; buffer[i]; i++)
+  for (int i = 4; buffer[i]; i++) {
     *d++ = buffer[i];
+  }
 
   *d++ = ']';
   *d++ = ' ';
 
-  for (int k = 0; prefix_str[k]; k++)
+  for (int k = 0; prefix_str[k]; k++) {
     *d++ = prefix_str[k];
+  }
 
   *d++ = ' ';
 
-  for (s = format_buf; *s; *d++ = *s++)
+  for (s = format_buf; *s; *d++ = *s++) {
     ;
+  }
 
   *d++ = NUL;
 
@@ -422,12 +429,14 @@ Diags::tag_activated(const char *tag, DiagsTagType mode) const
 {
   bool activated = false;
 
-  if (tag == nullptr)
+  if (tag == nullptr) {
     return (true);
+  }
 
   lock();
-  if (activated_tags[mode])
+  if (activated_tags[mode]) {
     activated = (activated_tags[mode]->match(tag) != -1);
+  }
   unlock();
 
   return (activated);
@@ -555,10 +564,11 @@ Diags::error_va(DiagsLevel level, const SourceLocation *loc, const char *format_
     }
 
     // DL_Emergency means the process cannot recover from a reboot
-    if (level == DL_Emergency)
+    if (level == DL_Emergency) {
       ink_emergency_va(format_string, ap2);
-    else
+    } else {
       ink_fatal_va(format_string, ap2);
+    }
   }
 
   va_end(ap2);
@@ -630,8 +640,9 @@ Diags::should_roll_diagslog()
         diagslog_rolling_enabled == RollingEnabledValues::ROLL_ON_TIME_OR_SIZE) {
       // if we can't even check the file, we can forget about rotating
       struct stat buf;
-      if (fstat(fileno(diags_log->m_fp), &buf) != 0)
+      if (fstat(fileno(diags_log->m_fp), &buf) != 0) {
         return false;
+      }
 
       int size = buf.st_size;
       if (diagslog_rolling_size != -1 && size >= (diagslog_rolling_size * BYTES_IN_MB)) {
@@ -716,27 +727,29 @@ Diags::should_roll_outputlog()
         outputlog_rolling_enabled == RollingEnabledValues::ROLL_ON_TIME_OR_SIZE) {
       // if we can't even check the file, we can forget about rotating
       struct stat buf;
-      if (fstat(fileno(stdout_log->m_fp), &buf) != 0)
+      if (fstat(fileno(stdout_log->m_fp), &buf) != 0) {
         return false;
+      }
 
       int size = buf.st_size;
       if (outputlog_rolling_size != -1 && size >= outputlog_rolling_size * BYTES_IN_MB) {
         // since usually stdout and stderr are the same file on disk, we should just
         // play it safe and just flush both BaseLogFiles
-        if (stderr_log->is_init())
+        if (stderr_log->is_init()) {
           fflush(stderr_log->m_fp);
+        }
         fflush(stdout_log->m_fp);
 
         if (stdout_log->roll()) {
           char *oldname = ats_strdup(stdout_log->get_name());
           log_log_trace("in %s(), oldname=%s\n", __func__, oldname);
-          set_stdout_output(oldname);
+          set_std_output(StdStream::STDOUT, oldname);
 
           // if stderr and stdout are redirected to the same place, we should
           // update the stderr_log object as well
           if (!strcmp(oldname, stderr_log->get_name())) {
             log_log_trace("oldname == stderr_log->get_name()\n");
-            set_stderr_output(oldname);
+            set_std_output(StdStream::STDERR, oldname);
             need_consider_stderr = false;
           }
           ats_free(oldname);
@@ -751,21 +764,22 @@ Diags::should_roll_outputlog()
       if (outputlog_rolling_interval != -1 && (now - outputlog_time_last_roll) >= outputlog_rolling_interval) {
         // since usually stdout and stderr are the same file on disk, we should just
         // play it safe and just flush both BaseLogFiles
-        if (stderr_log->is_init())
+        if (stderr_log->is_init()) {
           fflush(stderr_log->m_fp);
+        }
         fflush(stdout_log->m_fp);
 
         if (stdout_log->roll()) {
           outputlog_time_last_roll = now;
           char *oldname            = ats_strdup(stdout_log->get_name());
           log_log_trace("in %s, oldname=%s\n", __func__, oldname);
-          set_stdout_output(oldname);
+          set_std_output(StdStream::STDOUT, oldname);
 
           // if stderr and stdout are redirected to the same place, we should
           // update the stderr_log object as well
           if (!strcmp(oldname, stderr_log->get_name())) {
             log_log_trace("oldname == stderr_log->get_name()\n");
-            set_stderr_output(oldname);
+            set_std_output(StdStream::STDERR, oldname);
             need_consider_stderr = false;
           }
           ats_free(oldname);
@@ -784,58 +798,72 @@ Diags::should_roll_outputlog()
   // disk, and stderr pointing to a different file on disk, and then also wants both files to
   // rotate according to the (same || different) scheme, it would not be difficult to add
   // some more config options in records.config and said feature into this function.
-  if (ret_val)
+  if (ret_val) {
     ink_assert(!need_consider_stderr);
+  }
 
   return ret_val;
 }
 
 /*
- * Binds stdout to stdout_path, provided that stdout_path != "".
- * Also sets up a BaseLogFile for stdout.
+ * Sets up a BaseLogFile for the specified file. Then it binds the specified standard steam
+ * to the aforementioned BaseLogFile.
  *
- * Returns true on binding and setup, false otherwise
- *
- * TODO make this a generic function (ie combine set_stdout_output and
- * set_stderr_output
+ * Returns true on successful binding and setup, false otherwise
  */
 bool
-Diags::set_stdout_output(const char *stdout_path)
+Diags::set_std_output(StdStream stream, const char *file)
 {
-  if (strcmp(stdout_path, "") == 0)
-    return false;
+  const char *target_stream;
+  BaseLogFile **current;
+  BaseLogFile *old_log, *new_log;
 
-  BaseLogFile *old_stdout_log = stdout_log;
-  BaseLogFile *new_stdout_log = new BaseLogFile(stdout_path);
-
-  // on any errors we quit
-  if (!new_stdout_log || new_stdout_log->open_file(output_logfile_perm) != BaseLogFile::LOG_FILE_NO_ERROR) {
-    log_log_error("[Warning]: unable to open file=%s to bind stdout to\n", stdout_path);
-    log_log_error("[Warning]: stdout is currently not bound to anything\n");
-    delete new_stdout_log;
-    lock();
-    stdout_log = nullptr;
-    unlock();
-    return false;
-  }
-  if (!new_stdout_log->is_open()) {
-    log_log_error("[Warning]: file pointer for stdout %s = nullptr\n", stdout_path);
-    log_log_error("[Warning]: stdout is currently not bound to anything\n");
-    delete new_stdout_log;
-    lock();
-    stdout_log = nullptr;
-    unlock();
+  // If the caller is stupid, we give up
+  if (strcmp(file, "") == 0) {
     return false;
   }
 
-  // now exchange the stdout_log pointer
+  // Figure out which standard stream we want to redirect
+  if (stream == StdStream::STDOUT) {
+    target_stream = "stdout";
+    current       = &stdout_log;
+  } else {
+    target_stream = "stderr";
+    current       = &stderr_log;
+  }
+  (void)target_stream; // silence clang-analyzer for now
+  old_log = *current;
+  new_log = new BaseLogFile(file);
+
+  // On any errors we quit
+  if (!new_log || new_log->open_file(output_logfile_perm) != BaseLogFile::LOG_FILE_NO_ERROR) {
+    log_log_error("[Warning]: unable to open file=%s to bind %s to\n", file, target_stream);
+    log_log_error("[Warning]: %s is currently not bound to anything\n", target_stream);
+    delete new_log;
+    lock();
+    *current = nullptr;
+    unlock();
+    return false;
+  }
+  if (!new_log->is_open()) {
+    log_log_error("[Warning]: file pointer for %s %s = nullptr\n", target_stream, file);
+    log_log_error("[Warning]: %s is currently not bound to anything\n", target_stream);
+    delete new_log;
+    lock();
+    *current = nullptr;
+    unlock();
+    return false;
+  }
+
+  // Now exchange the pointer to the standard stream in question
   lock();
-  stdout_log = new_stdout_log;
-  bool ret   = rebind_stdout(fileno(new_stdout_log->m_fp));
+  *current = new_log;
+  bool ret = rebind_std_stream(stream, fileno(new_log->m_fp));
   unlock();
 
-  if (old_stdout_log)
-    delete old_stdout_log;
+  // Free the BaseLogFile we rotated out
+  if (old_log)
+    delete old_log;
 
   // "this should never happen"^{TM}
   ink_release_assert(ret);
@@ -844,84 +872,30 @@ Diags::set_stdout_output(const char *stdout_path)
 }
 
 /*
- * Binds stderr to stderr_path, provided that stderr_path != "".
- * Also sets up a BaseLogFile for stderr.
- *
- * Returns true on binding and setup, false otherwise
- */
-bool
-Diags::set_stderr_output(const char *stderr_path)
-{
-  if (strcmp(stderr_path, "") == 0)
-    return false;
-
-  BaseLogFile *old_stderr_log = stderr_log;
-  BaseLogFile *new_stderr_log = new BaseLogFile(stderr_path);
-
-  // on any errors we quit
-  if (!new_stderr_log || new_stderr_log->open_file(output_logfile_perm) != BaseLogFile::LOG_FILE_NO_ERROR) {
-    log_log_error("[Warning]: unable to open file=%s to bind stderr to\n", stderr_path);
-    log_log_error("[Warning]: stderr is currently not bound to anything\n");
-    delete new_stderr_log;
-    lock();
-    stderr_log = nullptr;
-    unlock();
-    return false;
-  }
-  if (!new_stderr_log->is_open()) {
-    log_log_error("[Warning]: file pointer for stderr %s = nullptr\n", stderr_path);
-    log_log_error("[Warning]: stderr is currently not bound to anything\n");
-    delete new_stderr_log;
-    lock();
-    stderr_log = nullptr;
-    unlock();
-    return false;
-  }
-
-  // now exchange the stderr_log pointer
-  lock();
-  stderr_log = new_stderr_log;
-  bool ret   = rebind_stderr(fileno(stderr_log->m_fp));
-  unlock();
-
-  if (old_stderr_log)
-    delete old_stderr_log;
-
-  // "this should never happen"^{TM}
-  ink_release_assert(ret);
-
-  return ret;
-}
-
-/*
- * Helper function that rebinds stdout to specified file descriptor
+ * Helper function that rebinds a specified stream to specified file descriptor
  *
  * Returns true on success, false otherwise
  */
 bool
-Diags::rebind_stdout(int new_fd)
+Diags::rebind_std_stream(StdStream stream, int new_fd)
 {
-  if (new_fd < 0)
-    log_log_error("[Warning]: TS unable to bind stdout to new file descriptor=%d", new_fd);
-  else {
-    dup2(new_fd, STDOUT_FILENO);
-    return true;
-  }
-  return false;
-}
+  const char *target_stream;
+  int stream_fd;
 
-/*
- * Helper function that rebinds stderr to specified file descriptor
- *
- * Returns true on success, false otherwise
- */
-bool
-Diags::rebind_stderr(int new_fd)
-{
+  // Figure out which stream to dup2
+  if (stream == StdStream::STDOUT) {
+    target_stream = "stdout";
+    stream_fd     = STDOUT_FILENO;
+  } else {
+    target_stream = "stderr";
+    stream_fd     = STDERR_FILENO;
+  }
+  (void)target_stream; // silence clang-analyzer for now
+
   if (new_fd < 0)
-    log_log_error("[Warning]: TS unable to bind stderr to new file descriptor=%d", new_fd);
+    log_log_error("[Warning]: TS unable to bind %s to new file descriptor=%d", target_stream, new_fd);
   else {
-    dup2(new_fd, STDERR_FILENO);
+    dup2(new_fd, stream_fd);
     return true;
   }
   return false;

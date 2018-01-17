@@ -44,7 +44,7 @@ using std::strlen;
 
 struct AuthRequestContext;
 
-typedef bool (*AuthRequestTransform)(AuthRequestContext *auth);
+using AuthRequestTransform = bool (*)(AuthRequestContext *);
 
 const static int MAX_HOST_LENGTH = 4096;
 
@@ -73,7 +73,7 @@ static AuthOptions *AuthGlobalOptions;
 //      TS_EVENT_CONTINUE   Continue the state machine, returning to the ATS event loop
 //      TS_EVENT_NONE       Stop processing (because a nested dispatch occurred)
 //      Anything else       Continue the state machine with this event
-typedef TSEvent (*StateHandler)(struct AuthRequestContext *, void *edata);
+using StateHandler = TSEvent (*)(struct AuthRequestContext *, void *);
 
 struct StateTransition {
   TSEvent event;
@@ -748,7 +748,7 @@ TSPluginInit(int argc, const char *argv[])
     AuthLogError("plugin registration failed");
   }
 
-  TSReleaseAssert(TSHttpArgIndexReserve("AuthProxy", "AuthProxy authorization tag", &AuthTaggedRequestArg) == TS_SUCCESS);
+  TSReleaseAssert(TSHttpTxnArgIndexReserve("AuthProxy", "AuthProxy authorization tag", &AuthTaggedRequestArg) == TS_SUCCESS);
 
   AuthOsDnsContinuation = TSContCreate(AuthProxyGlobalHook, nullptr);
   AuthGlobalOptions     = AuthParseOptions(argc, argv);
@@ -761,7 +761,7 @@ TSPluginInit(int argc, const char *argv[])
 TSReturnCode
 TSRemapInit(TSRemapInterface * /* api ATS_UNUSED */, char * /* err ATS_UNUSED */, int /* errsz ATS_UNUSED */)
 {
-  TSReleaseAssert(TSHttpArgIndexReserve("AuthProxy", "AuthProxy authorization tag", &AuthTaggedRequestArg) == TS_SUCCESS);
+  TSReleaseAssert(TSHttpTxnArgIndexReserve("AuthProxy", "AuthProxy authorization tag", &AuthTaggedRequestArg) == TS_SUCCESS);
 
   AuthOsDnsContinuation = TSContCreate(AuthProxyGlobalHook, nullptr);
   return TS_SUCCESS;

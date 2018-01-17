@@ -94,6 +94,8 @@
 #define DEFAULT_STR "-"
 #define DEFAULT_STR_LEN 1
 
+extern char INVALID_STR[];
+
 #define DEFAULT_INT_FIELD  \
   {                        \
     if (buf) {             \
@@ -167,12 +169,12 @@ public:
   //
   // client -> proxy fields
   //
-  inkcoreapi virtual int marshal_client_host_ip(char *);        // STR
-  inkcoreapi virtual int marshal_host_interface_ip(char *);     // STR
-  inkcoreapi virtual int marshal_client_host_port(char *);      // INT
-  inkcoreapi virtual int marshal_client_auth_user_name(char *); // STR
-  int marshal_client_req_timestamp_sec(char *);                 // INT
-
+  inkcoreapi virtual int marshal_client_host_ip(char *);                // STR
+  inkcoreapi virtual int marshal_host_interface_ip(char *);             // STR
+  inkcoreapi virtual int marshal_client_host_port(char *);              // INT
+  inkcoreapi virtual int marshal_client_auth_user_name(char *);         // STR
+  inkcoreapi virtual int marshal_client_req_timestamp_sec(char *);      // INT
+  inkcoreapi virtual int marshal_client_req_timestamp_ms(char *);       // INT
   inkcoreapi virtual int marshal_client_req_text(char *);               // STR
   inkcoreapi virtual int marshal_client_req_http_method(char *);        // STR
   inkcoreapi virtual int marshal_client_req_url(char *);                // STR
@@ -267,12 +269,14 @@ public:
 
   // other fields
   //
-  inkcoreapi virtual int marshal_transfer_time_ms(char *);    // INT
-  inkcoreapi virtual int marshal_transfer_time_s(char *);     // INT
-  inkcoreapi virtual int marshal_file_size(char *);           // INT
-  inkcoreapi virtual int marshal_plugin_identity_id(char *);  // INT
-  inkcoreapi virtual int marshal_plugin_identity_tag(char *); // STR
-  inkcoreapi virtual int marshal_process_uuid(char *);        // STR
+  inkcoreapi virtual int marshal_transfer_time_ms(char *);           // INT
+  inkcoreapi virtual int marshal_transfer_time_s(char *);            // INT
+  inkcoreapi virtual int marshal_file_size(char *);                  // INT
+  inkcoreapi virtual int marshal_plugin_identity_id(char *);         // INT
+  inkcoreapi virtual int marshal_plugin_identity_tag(char *);        // STR
+  inkcoreapi virtual int marshal_process_uuid(char *);               // STR
+  inkcoreapi virtual int marshal_client_http_connection_id(char *);  // INT
+  inkcoreapi virtual int marshal_client_http_transaction_id(char *); // INT
 
   // These two are special, in that they are shared for all log types / implementations
   inkcoreapi int marshal_entry_type(char *);                     // INT
@@ -302,6 +306,11 @@ public:
   // milestones access
   //
   inkcoreapi virtual int marshal_milestone(TSMilestonesType ms, char *buf);
+  inkcoreapi virtual int marshal_milestone_fmt_sec(TSMilestonesType ms, char *buf);
+  inkcoreapi virtual int marshal_milestone_fmt_squid(TSMilestonesType ms, char *buf);
+  inkcoreapi virtual int marshal_milestone_fmt_netscape(TSMilestonesType ms, char *buf);
+  inkcoreapi virtual int marshal_milestone_fmt_date(TSMilestonesType ms, char *buf);
+  inkcoreapi virtual int marshal_milestone_fmt_time(TSMilestonesType ms, char *buf);
   inkcoreapi virtual int marshal_milestone_diff(TSMilestonesType ms1, TSMilestonesType ms2, char *buf);
 
   //
@@ -317,6 +326,9 @@ public:
   static int unmarshal_int_to_str_hex(char **buf, char *dest, int len);
   static int unmarshal_str(char **buf, char *dest, int len, LogSlice *slice = NULL);
   static int unmarshal_ttmsf(char **buf, char *dest, int len);
+  static int unmarshal_int_to_date_str(char **buf, char *dest, int len);
+  static int unmarshal_int_to_time_str(char **buf, char *dest, int len);
+  static int unmarshal_int_to_netscape_str(char **buf, char *dest, int len);
   static int unmarshal_http_version(char **buf, char *dest, int len);
   static int unmarshal_http_text(char **buf, char *dest, int len, LogSlice *slice = NULL);
   static int unmarshal_http_status(char **buf, char *dest, int len);
@@ -350,10 +362,12 @@ public:
 
   bool initialized;
 
-private:
+  // noncopyable
   // -- member functions that are not allowed --
-  LogAccess(const LogAccess &rhs);      // no copies
-  LogAccess &operator=(LogAccess &rhs); // or assignment
+  LogAccess(const LogAccess &rhs) = delete;      // no copies
+  LogAccess &operator=(LogAccess &rhs) = delete; // or assignment
+
+private:
 };
 
 inline int

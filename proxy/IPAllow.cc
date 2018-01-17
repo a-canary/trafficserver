@@ -284,11 +284,11 @@ IpAllow::BuildTable()
           }
 
           if (method_found) {
-            Vec<AclRecord> &acls = is_dest_ip ? _dest_acls : _src_acls;
-            IpMap &map           = is_dest_ip ? _dest_map : _src_map;
+            std::vector<AclRecord> &acls = is_dest_ip ? _dest_acls : _src_acls;
+            IpMap &map                   = is_dest_ip ? _dest_map : _src_map;
             acls.push_back(AclRecord(acl_method_mask, line_num, nonstandard_methods, deny_nonstandard_methods));
             // Color with index in acls because at this point the address is volatile.
-            map.fill(&addr1, &addr2, reinterpret_cast<void *>(acls.length() - 1));
+            map.fill(&addr1, &addr2, reinterpret_cast<void *>(acls.size() - 1));
           } else {
             snprintf(errBuf, sizeof(errBuf), "%s discarding %s entry at line %d : %s", module_name, config_file_path, line_num,
                      "Invalid action/method specified"); // changed by YTS Team, yamsat bug id -59022
@@ -305,10 +305,12 @@ IpAllow::BuildTable()
     Warning("%s No entries in %s. All IP Addresses will be blocked", module_name, config_file_path);
   } else {
     // convert the coloring from indices to pointers.
-    for (auto &item : _src_map)
+    for (auto &item : _src_map) {
       item.setData(&_src_acls[reinterpret_cast<size_t>(item.data())]);
-    for (auto &item : _dest_map)
+    }
+    for (auto &item : _dest_map) {
       item.setData(&_dest_acls[reinterpret_cast<size_t>(item.data())]);
+    }
   }
 
   if (is_debug_tag_set("ip-allow")) {

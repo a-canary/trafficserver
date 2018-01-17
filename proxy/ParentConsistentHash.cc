@@ -103,7 +103,8 @@ ParentConsistentHash::getPathHash(HttpRequestData *hrdata, ATSHash64 *h)
 }
 
 void
-ParentConsistentHash::selectParent(const ParentSelectionPolicy *policy, bool first_call, ParentResult *result, RequestData *rdata)
+ParentConsistentHash::selectParent(bool first_call, ParentResult *result, RequestData *rdata, unsigned int fail_threshold,
+                                   unsigned int retry_time)
 {
   ATSHash64Sip24 hash;
   ATSConsistentHash *fhash;
@@ -170,8 +171,8 @@ ParentConsistentHash::selectParent(const ParentSelectionPolicy *policy, bool fir
     do {
       if (pRec && !pRec->available) {
         Debug("parent_select", "Parent.failedAt = %u, retry = %u, xact_start = %u", (unsigned int)pRec->failedAt,
-              (unsigned int)policy->ParentRetryTime, (unsigned int)request_info->xact_start);
-        if ((pRec->failedAt + policy->ParentRetryTime) < request_info->xact_start) {
+              (unsigned int)retry_time, (unsigned int)request_info->xact_start);
+        if ((pRec->failedAt + retry_time) < request_info->xact_start) {
           parentRetry = true;
           // make sure that the proper state is recorded in the result structure
           result->last_parent = pRec->idx;
@@ -240,79 +241,6 @@ ParentConsistentHash::selectParent(const ParentSelectionPolicy *policy, bool fir
   }
 
   return;
-}
-
-void
-ParentConsistentHash::markParentDown(const ParentSelectionPolicy *policy, ParentResult *result)
-{
-  time_t now;
-  pRecord *pRec;
-  int new_fail_count = 0;
-
-  Debug("parent_select", "Starting ParentConsistentHash::markParentDown()");
-
-  //  Make sure that we are being called back with with a
-  //   result structure with a parent
-  ink_assert(result->result == PARENT_SPECIFIED);
-  if (result->result != PARENT_SPECIFIED) {
-    return;
-  }
-  // If we were set through the API we currently have not failover
-  //   so just return fail
-  if (result->is_api_result()) {
-    return;
-  }
-
-  ink_assert((result->last_parent) < numParents(result));
-  pRec = parents[result->last_lookup] + result->last_parent;
-
-  // If the parent has already been marked down, just increment
-  //   the failure count.  If this is the first mark down on a
-  //   parent we need to both set the failure time and set
-  //   count to one.  It's possible for the count and time get out
-  //   sync due there being no locks.  Therefore the code should
-  //   handle this condition.  If this was the result of a retry, we
-  //   must update move the failedAt timestamp to now so that we continue
-  //   negative cache the parent
-  if (pRec->failedAt == 0 || result->retry == true) {
-    // Reread the current time.  We want this to be accurate since
-    //   it relates to how long the parent has been down.
-    now = time(nullptr);
-
-    // Mark the parent failure time.
-    ink_atomic_swap(&pRec->failedAt, now);
-
-    // If this is clean mark down and not a failed retry, we
-    //   must set the count to reflect this
-    if (result->retry == false) {
-      new_fail_count = pRec->failCount = 1;
-    }
-
-    Note("Parent %s marked as down %s:%d", (result->retry) ? "retry" : "initially", pRec->hostname, pRec->port);
-
-  } else {
-    int old_count = 0;
-    now           = time(nullptr);
-
-    // if the last failure was outside the retry window, set the failcount to 1
-    // and failedAt to now.
-    if ((pRec->failedAt + policy->ParentRetryTime) < now) {
-      ink_atomic_swap(&pRec->failCount, 1);
-      ink_atomic_swap(&pRec->failedAt, now);
-    } else {
-      old_count = ink_atomic_increment(&pRec->failCount, 1);
-    }
-
-    Debug("parent_select", "Parent fail count increased to %d for %s:%d", old_count + 1, pRec->hostname, pRec->port);
-    new_fail_count = old_count + 1;
-  }
-
-  if (new_fail_count > 0 && new_fail_count >= policy->FailThreshold) {
-    Note("Failure threshold met failcount:%d >= threshold:%d, http parent proxy %s:%d marked down", new_fail_count,
-         policy->FailThreshold, pRec->hostname, pRec->port);
-    ink_atomic_swap(&pRec->available, false);
-    Debug("parent_select", "Parent %s:%d marked unavailable, pRec->available=%d", pRec->hostname, pRec->port, pRec->available);
-  }
 }
 
 uint32_t

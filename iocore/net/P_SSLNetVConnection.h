@@ -32,15 +32,16 @@
 #if !defined(_SSLNetVConnection_h_)
 #define _SSLNetVConnection_h_
 
-#include "ts/ink_platform.h"
-#include "P_EventSystem.h"
-#include "P_UnixNetVConnection.h"
-#include "P_UnixNet.h"
-#include "ts/apidefs.h"
-#include <ts/MemView.h>
+#include <ts/ink_platform.h>
+#include <ts/apidefs.h>
+#include <ts/string_view.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+
+#include "P_EventSystem.h"
+#include "P_UnixNetVConnection.h"
+#include "P_UnixNet.h"
 
 // These are included here because older OpenSSL libraries don't have them.
 // Don't copy these defines, or use their values directly, they are merely
@@ -90,6 +91,7 @@ class SSLNetVConnection : public UnixNetVConnection
 
 public:
   int sslStartHandShake(int event, int &err) override;
+  void clear() override;
   void free(EThread *t) override;
 
   virtual void
@@ -165,6 +167,12 @@ public:
     return transparentPassThrough;
   }
 
+  bool
+  GetSNIMapping()
+  {
+    return SNIMapping;
+  }
+
   void
   setTransparentPassThrough(bool val)
   {
@@ -215,7 +223,44 @@ public:
 
   // Returns true if we have already called at
   // least some of the hooks
-  bool calledHooks(TSEvent /* eventId */) const { return (this->sslHandshakeHookState != HANDSHAKE_HOOKS_PRE); }
+  bool
+  calledHooks(TSEvent eventId) const
+  {
+    bool retval = false;
+    switch (this->sslHandshakeHookState) {
+    case HANDSHAKE_HOOKS_PRE:
+    case HANDSHAKE_HOOKS_PRE_INVOKE:
+      if (eventId == TS_EVENT_VCONN_PRE_ACCEPT) {
+        if (curHook) {
+          retval = true;
+        }
+      }
+      break;
+    case HANDSHAKE_HOOKS_SNI:
+      if (eventId == TS_EVENT_VCONN_PRE_ACCEPT) {
+        retval = true;
+      } else if (eventId == TS_EVENT_SSL_SERVERNAME) {
+        if (curHook) {
+          retval = true;
+        }
+      }
+      break;
+    case HANDSHAKE_HOOKS_CERT:
+    case HANDSHAKE_HOOKS_CERT_INVOKE:
+      if (eventId == TS_EVENT_VCONN_PRE_ACCEPT || eventId == TS_EVENT_SSL_SERVERNAME) {
+        retval = true;
+      } else if (eventId == TS_EVENT_SSL_CERT) {
+        if (curHook) {
+          retval = true;
+        }
+      }
+      break;
+    case HANDSHAKE_HOOKS_DONE:
+      retval = true;
+      break;
+    }
+    return retval;
+  }
   bool
   getSSLTrace() const
   {
@@ -242,8 +287,8 @@ public:
     return ssl ? SSL_get_cipher_name(ssl) : nullptr;
   }
 
-  int populate_protocol(ts::StringView *results, int n) const override;
-  const char *protocol_contains(ts::StringView tag) const override;
+  int populate_protocol(ts::string_view *results, int n) const override;
+  const char *protocol_contains(ts::string_view tag) const override;
 
   /**
    * Populate the current object based on the socket information in in the
@@ -254,17 +299,21 @@ public:
 
   SSL *ssl                         = nullptr;
   ink_hrtime sslHandshakeBeginTime = 0;
+  ink_hrtime sslHandshakeEndTime   = 0;
   ink_hrtime sslLastWriteTime      = 0;
   int64_t sslTotalBytesSent        = 0;
+  char *serverName                 = nullptr;
 
   /// Set by asynchronous hooks to request a specific operation.
   SslVConnOp hookOpRequested = SSL_HOOK_OP_DEFAULT;
 
-private:
-  SSLNetVConnection(const SSLNetVConnection &);
-  SSLNetVConnection &operator=(const SSLNetVConnection &);
+  // noncopyable
+  SSLNetVConnection(const SSLNetVConnection &) = delete;
+  SSLNetVConnection &operator=(const SSLNetVConnection &) = delete;
 
-  ts::StringView map_tls_protocol_to_tag(const char *proto_string) const;
+private:
+  ts::string_view map_tls_protocol_to_tag(const char *proto_string) const;
+  bool update_rbio(bool move_to_socket);
 
   bool sslHandShakeComplete        = false;
   bool sslClientRenegotiationAbort = false;
@@ -280,19 +329,12 @@ private:
   /// @note For @C SSL_HOOKS_INVOKE, this is the hook to invoke.
   class APIHook *curHook = nullptr;
 
-  enum {
-    SSL_HOOKS_INIT,     ///< Initial state, no hooks called yet.
-    SSL_HOOKS_INVOKE,   ///< Waiting to invoke hook.
-    SSL_HOOKS_ACTIVE,   ///< Hook invoked, waiting for it to complete.
-    SSL_HOOKS_CONTINUE, ///< All hooks have been called and completed
-    SSL_HOOKS_DONE      ///< All hooks have been called and completed
-  } sslPreAcceptHookState = SSL_HOOKS_INIT;
-
   enum SSLHandshakeHookState {
     HANDSHAKE_HOOKS_PRE,
+    HANDSHAKE_HOOKS_PRE_INVOKE,
+    HANDSHAKE_HOOKS_SNI,
     HANDSHAKE_HOOKS_CERT,
-    HANDSHAKE_HOOKS_POST,
-    HANDSHAKE_HOOKS_INVOKE,
+    HANDSHAKE_HOOKS_CERT_INVOKE,
     HANDSHAKE_HOOKS_DONE
   } sslHandshakeHookState = HANDSHAKE_HOOKS_PRE;
 
@@ -300,6 +342,7 @@ private:
   Continuation *npnEndpoint        = nullptr;
   SessionAccept *sessionAcceptPtr  = nullptr;
   bool sslTrace                    = false;
+  bool SNIMapping                  = false;
 };
 
 typedef int (SSLNetVConnection::*SSLNetVConnHandler)(int, void *);

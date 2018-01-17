@@ -38,6 +38,9 @@
 #include "Log.h"
 #include "ts/TestBox.h"
 
+#include <algorithm>
+#include <vector>
+
 static bool
 should_roll_on_time(Log::RollingEnabledValues roll)
 {
@@ -361,7 +364,7 @@ LogObject::display(FILE *fd)
 }
 
 static head_p
-increment_pointer_version(volatile head_p *dst)
+increment_pointer_version(head_p *dst)
 {
   head_p h;
   head_p new_h;
@@ -375,7 +378,7 @@ increment_pointer_version(volatile head_p *dst)
 }
 
 static bool
-write_pointer_version(volatile head_p *dst, head_p old_h, void *ptr, head_p::version_type vers)
+write_pointer_version(head_p *dst, head_p old_h, void *ptr, head_p::version_type vers)
 {
   head_p tmp_h;
 
@@ -791,18 +794,6 @@ LogObject::check_buffer_expiration(long time_now)
   }
 }
 
-// make sure that we will be able to write the logs to the disk
-//
-int
-LogObject::do_filesystem_checks()
-{
-  if (m_logFile) {
-    return m_logFile->do_filesystem_checks();
-  } else {
-    return m_host_list.do_filesystem_checks();
-  }
-}
-
 /*-------------------------------------------------------------------------
   TextLogObject::TextLogObject
   -------------------------------------------------------------------------*/
@@ -864,18 +855,18 @@ TextLogObject::va_write(const char *format, va_list ap)
 LogObjectManager::LogObjectManager()
 {
   _APImutex = new ink_mutex;
-  ink_mutex_init(_APImutex, "_APImutex");
+  ink_mutex_init(_APImutex);
 }
 
 LogObjectManager::~LogObjectManager()
 {
-  for (unsigned i = 0; i < _objects.length(); ++i) {
+  for (unsigned i = 0; i < _objects.size(); ++i) {
     if (REF_COUNT_OBJ_REFCOUNT_DEC(_objects[i]) == 0) {
       delete _objects[i];
     }
   }
 
-  for (unsigned i = 0; i < _APIobjects.length(); ++i) {
+  for (unsigned i = 0; i < _APIobjects.size(); ++i) {
     if (REF_COUNT_OBJ_REFCOUNT_DEC(_APIobjects[i]) == 0) {
       delete _APIobjects[i];
     }
@@ -901,14 +892,7 @@ LogObjectManager::_manage_object(LogObject *log_object, bool is_api_object, int 
     if (col_client || (retVal = _solve_filename_conflicts(log_object, maxConflicts), retVal == NO_FILENAME_CONFLICTS)) {
       // do filesystem checks
       //
-      if (log_object->do_filesystem_checks() < 0) {
-        const char *msg = "The log file %s did not pass filesystem checks. "
-                          "No output will be produced for this log";
-        Error(msg, log_object->get_full_filename());
-        LogUtils::manager_alarm(LogUtils::LOG_ALARM_ERROR, msg, log_object->get_full_filename());
-        retVal = ERROR_DOING_FILESYSTEM_CHECKS;
-
-      } else {
+      {
         // no conflicts, add object to the list of managed objects
         //
         REF_COUNT_OBJ_REFCOUNT_INC(log_object);
@@ -1063,7 +1047,7 @@ LogObjectManager::_filename_resolution_abort(const char *filename)
 bool
 LogObjectManager::_has_internal_filename_conflict(const char *filename, LogObjectList &objects)
 {
-  for (unsigned i = 0; i < objects.length(); i++) {
+  for (unsigned i = 0; i < objects.size(); i++) {
     if (!objects[i]->is_collation_client()) {
       // an internal conflict exists if two objects request the
       // same filename, regardless of the object signatures, since
@@ -1104,7 +1088,7 @@ LogObjectManager::_solve_internal_filename_conflicts(LogObject *log_object, int 
 LogObject *
 LogObjectManager::get_object_with_signature(uint64_t signature)
 {
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     LogObject *obj = this->_objects[i];
 
     if (obj->get_signature() == signature) {
@@ -1117,13 +1101,13 @@ LogObjectManager::get_object_with_signature(uint64_t signature)
 void
 LogObjectManager::check_buffer_expiration(long time_now)
 {
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     this->_objects[i]->check_buffer_expiration(time_now);
   }
 
   ACQUIRE_API_MUTEX("A LogObjectManager::check_buffer_expiration");
 
-  for (unsigned i = 0; i < this->_APIobjects.length(); i++) {
+  for (unsigned i = 0; i < this->_APIobjects.size(); i++) {
     this->_APIobjects[i]->check_buffer_expiration(time_now);
   }
 
@@ -1135,13 +1119,13 @@ LogObjectManager::preproc_buffers(int idx)
 {
   size_t buffers_preproced = 0;
 
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     buffers_preproced += this->_objects[i]->preproc_buffers(idx);
   }
 
   ACQUIRE_API_MUTEX("A LogObjectManager::preproc_buffers");
 
-  for (unsigned i = 0; i < this->_APIobjects.length(); i++) {
+  for (unsigned i = 0; i < this->_APIobjects.size(); i++) {
     buffers_preproced += this->_APIobjects[i]->preproc_buffers(idx);
   }
 
@@ -1153,10 +1137,15 @@ LogObjectManager::preproc_buffers(int idx)
 bool
 LogObjectManager::unmanage_api_object(LogObject *logObject)
 {
+  if (!logObject)
+    return false;
+
   ACQUIRE_API_MUTEX("A LogObjectManager::unmanage_api_object");
 
-  if (this->_APIobjects.in(logObject)) {
-    this->_APIobjects.remove(logObject);
+  auto index = std::find(this->_APIobjects.begin(), this->_APIobjects.end(), logObject);
+
+  if (index != this->_APIobjects.end()) {
+    this->_APIobjects.erase(index);
 
     // Force a buffer flush, then schedule this LogObject to be deleted on the eventProcessor.
     logObject->force_new_buffer();
@@ -1173,7 +1162,7 @@ LogObjectManager::unmanage_api_object(LogObject *logObject)
 void
 LogObjectManager::add_filter_to_all(LogFilter *filter)
 {
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     _objects[i]->add_filter(filter);
   }
 }
@@ -1184,7 +1173,7 @@ LogObjectManager::open_local_pipes()
   // for all local objects that write to a pipe, call open_file to force
   // the creation of the pipe so that any potential reader can see it
   //
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     LogObject *obj = _objects[i];
     if (obj->writes_to_pipe() && !obj->is_collation_client()) {
       obj->m_logFile->open_file();
@@ -1201,22 +1190,22 @@ LogObjectManager::transfer_objects(LogObjectManager &old_mgr)
 
   if (is_debug_tag_set("log-config-transfer")) {
     Debug("log-config-transfer", "TRANSFER OBJECTS: list of old objects");
-    for (unsigned i = 0; i < old_mgr._objects.length(); i++) {
+    for (unsigned i = 0; i < old_mgr._objects.size(); i++) {
       Debug("log-config-transfer", "%s", old_mgr._objects[i]->get_original_filename());
     }
 
     Debug("log-config-transfer", "TRANSFER OBJECTS : list of new objects");
-    for (unsigned i = 0; i < this->_objects.length(); i++) {
+    for (unsigned i = 0; i < this->_objects.size(); i++) {
       Debug("log-config-transfer", "%s", _objects[i]->get_original_filename());
     }
   }
 
   // Transfer the API objects from the old manager. The old manager will retain its refcount.
-  for (unsigned i = 0; i < old_mgr._APIobjects.length(); ++i) {
+  for (unsigned i = 0; i < old_mgr._APIobjects.size(); ++i) {
     manage_api_object(old_mgr._APIobjects[i]);
   }
 
-  for (unsigned i = 0; i < old_mgr._objects.length(); ++i) {
+  for (unsigned i = 0; i < old_mgr._objects.size(); ++i) {
     LogObject *old_obj = old_mgr._objects[i];
     LogObject *new_obj;
 
@@ -1225,7 +1214,7 @@ LogObjectManager::transfer_objects(LogObjectManager &old_mgr)
     // See if any of the new objects is just a copy of an old one. If so, transfer the
     // old one to the new manager and delete the new one. We don't use Vec::in here because
     // we need to compare the object hash, not the pointers.
-    for (unsigned j = 0; j < _objects.length(); j++) {
+    for (unsigned j = 0; j < _objects.size(); j++) {
       new_obj = _objects[j];
 
       Debug("log-config-transfer", "comparing existing object %s to new object %s", old_obj->get_base_filename(),
@@ -1257,13 +1246,13 @@ LogObjectManager::roll_files(long time_now)
 {
   int num_rolled = 0;
 
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     num_rolled += this->_objects[i]->roll_files(time_now);
   }
 
   ACQUIRE_API_MUTEX("A LogObjectManager::roll_files");
 
-  for (unsigned i = 0; i < this->_APIobjects.length(); i++) {
+  for (unsigned i = 0; i < this->_APIobjects.size(); i++) {
     num_rolled += this->_APIobjects[i]->roll_files(time_now);
   }
 
@@ -1275,12 +1264,12 @@ LogObjectManager::roll_files(long time_now)
 void
 LogObjectManager::display(FILE *str)
 {
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     _objects[i]->display(str);
   }
 
   ACQUIRE_API_MUTEX("A LogObjectManager::display");
-  for (unsigned i = 0; i < this->_APIobjects.length(); i++) {
+  for (unsigned i = 0; i < this->_APIobjects.size(); i++) {
     _APIobjects[i]->display(str);
   }
   RELEASE_API_MUTEX("R LogObjectManager::display");
@@ -1289,7 +1278,7 @@ LogObjectManager::display(FILE *str)
 LogObject *
 LogObjectManager::find_by_format_name(const char *name) const
 {
-  for (unsigned i = 0; i < this->_objects.length(); ++i) {
+  for (unsigned i = 0; i < this->_objects.size(); ++i) {
     if (this->_objects[i] && this->_objects[i]->m_format->name_id() == LogFormat::id_from_name(name)) {
       return this->_objects[i];
     }
@@ -1302,7 +1291,7 @@ LogObjectManager::get_num_collation_clients() const
 {
   unsigned coll_clients = 0;
 
-  for (unsigned i = 0; i < this->_objects.length(); ++i) {
+  for (unsigned i = 0; i < this->_objects.size(); ++i) {
     if (this->_objects[i] && this->_objects[i]->is_collation_client()) {
       ++coll_clients;
     }
@@ -1316,7 +1305,7 @@ LogObjectManager::log(LogAccess *lad)
   int ret           = Log::SKIP;
   ProxyMutex *mutex = this_thread()->mutex.get();
 
-  for (unsigned i = 0; i < this->_objects.length(); i++) {
+  for (unsigned i = 0; i < this->_objects.size(); i++) {
     //
     // Auto created LogObject is only applied to LogBuffer
     // data received from network in collation host. It should
@@ -1354,13 +1343,13 @@ LogObjectManager::log(LogAccess *lad)
 void
 LogObjectManager::flush_all_objects()
 {
-  for (unsigned i = 0; i < this->_objects.length(); ++i) {
+  for (unsigned i = 0; i < this->_objects.size(); ++i) {
     this->_objects[i]->force_new_buffer();
   }
 
   ACQUIRE_API_MUTEX("A LogObjectManager::flush_all_objects");
 
-  for (unsigned i = 0; i < this->_APIobjects.length(); ++i) {
+  for (unsigned i = 0; i < this->_APIobjects.size(); ++i) {
     this->_APIobjects[i]->force_new_buffer();
   }
 

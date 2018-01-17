@@ -27,8 +27,14 @@
 #include <string.h>
 #include <strings.h>
 #include <inttypes.h>
+#include <string>
 
+#include "ts/string_view.h"
 #include "ts/ink_config.h"
+
+#ifdef __cplusplus
+#include "ink_std_compat.h"
+#endif
 
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -131,6 +137,7 @@ static inline size_t __attribute__((const)) ats_pagesize(void)
 char *_xstrdup(const char *str, int length, const char *path);
 
 #define ats_strdup(p) _xstrdup((p), -1, nullptr)
+
 #define ats_strndup(p, n) _xstrdup((p), n, nullptr)
 
 #ifdef __cplusplus
@@ -138,6 +145,21 @@ char *_xstrdup(const char *str, int length, const char *path);
 #endif
 
 #ifdef __cplusplus
+
+// this is to help with migration to a std::string issue with older code that
+// expects char* being copied. As more code moves to std::string, this can be
+// removed to avoid these extra copies.
+inline char *
+ats_stringdup(std::string const &p)
+{
+  return p.empty() ? nullptr : _xstrdup(p.data(), p.size(), nullptr);
+}
+
+inline char *
+ats_stringdup(ts::string_view const &p)
+{
+  return p.empty() ? nullptr : _xstrdup(p.data(), p.size(), nullptr);
+}
 
 template <typename PtrType, typename SizeType>
 static inline IOVec
@@ -339,8 +361,8 @@ public:
 protected:
   value_type _r; ///< Resource.
 private:
-  ats_scoped_resource(self const &); ///< Copy constructor not permitted.
-  self &operator=(self const &);     ///< Self assignment not permitted.
+  ats_scoped_resource(self const &) = delete; ///< Copy constructor not permitted.
+  self &operator=(self const &) = delete;     ///< Self assignment not permitted.
 };
 
 namespace detail
@@ -453,11 +475,47 @@ public:
   explicit ats_scoped_str(size_t n) : super(static_cast<char *>(ats_malloc(n))) {}
   /// Put string @a s in this container for cleanup.
   explicit ats_scoped_str(char *s) : super(s) {}
+  // constructor with std::string
+  explicit ats_scoped_str(const std::string &s)
+  {
+    if (s.empty())
+      _r = nullptr;
+    else
+      _r = strdup(s.c_str());
+  }
+  // constructor with string_view
+  explicit ats_scoped_str(const ts::string_view &s)
+  {
+    if (s.empty())
+      _r = nullptr;
+    else
+      _r = strdup(s.data());
+  }
   /// Assign a string @a s to this container.
   self &
   operator=(char *s)
   {
     super::operator=(s);
+    return *this;
+  }
+  // std::string case
+  self &
+  operator=(const std::string &s)
+  {
+    if (s.empty())
+      _r = nullptr;
+    else
+      _r = strdup(s.c_str());
+    return *this;
+  }
+  // string_view case
+  self &
+  operator=(const ts::string_view &s)
+  {
+    if (s.empty())
+      _r = nullptr;
+    else
+      _r = strdup(s.data());
     return *this;
   }
 };

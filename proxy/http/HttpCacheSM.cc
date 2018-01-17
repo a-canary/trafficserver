@@ -34,16 +34,16 @@
 #include "HttpSM.h"
 #include "HttpDebugNames.h"
 
-#define STATE_ENTER(state_name, event)                                                                                   \
-  {                                                                                                                      \
-    REMEMBER(event, -1);                                                                                                 \
-    Debug("http_cache", "[%" PRId64 "] [%s, %s]", master_sm->sm_id, #state_name, HttpDebugNames::get_event_name(event)); \
+#define SM_REMEMBER(sm, e, r)                          \
+  {                                                    \
+    sm->history.push_back(MakeSourceLocation(), e, r); \
   }
 
-#define __REMEMBER(x) #x
-#define _REMEMBER(x) __REMEMBER(x)
-
-#define REMEMBER(e, r) master_sm->add_history_entry(__FILE__ ":" _REMEMBER(__LINE__), e, r);
+#define STATE_ENTER(state_name, event)                                                                                   \
+  {                                                                                                                      \
+    SM_REMEMBER(master_sm, event, NO_REENTRANT);                                                                         \
+    Debug("http_cache", "[%" PRId64 "] [%s, %s]", master_sm->sm_id, #state_name, HttpDebugNames::get_event_name(event)); \
+  }
 
 HttpCacheAction::HttpCacheAction() : sm(nullptr)
 {

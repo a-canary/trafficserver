@@ -696,10 +696,11 @@ CoreUtils::dump_history(HttpSM *hsm)
   printf("-------- Begin History -------------\n");
 
   // Loop through the history and dump it
-  for (int i = 0; i < hsm->history_pos; i++) {
+  for (unsigned int i = 0; i < hsm->history.size(); i++) {
+    char loc[256];
     int r          = (int)hsm->history[i].reentrancy;
     int e          = (int)hsm->history[i].event;
-    char *fileline = load_string(hsm->history[i].fileline);
+    char *fileline = load_string(hsm->history[i].location.str(loc, sizeof(loc)));
 
     fileline = (fileline != nullptr) ? fileline : ats_strdup("UNKNOWN");
 

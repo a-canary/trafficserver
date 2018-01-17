@@ -22,7 +22,7 @@
 records.config
 **************
 
-The :file:`records.config` file (by default, located in
+The :file:`records.config` file (by default (:ts:cv:`proxy.config.config_dir`), located in
 ``/usr/local/etc/trafficserver/``) is a list of configurable variables used by
 the |TS| software. Many of the variables in :file:`records.config` are set
 automatically when you set configuration options with :option:`traffic_ctl config set`. After you
@@ -226,7 +226,8 @@ System Variables
    This is a read-only configuration option that contains the
    ``SYSCONFDIR`` value specified at build time relative to the
    installation prefix. The ``$TS_ROOT`` environment variable can
-   be used alter the installation prefix at run time.
+   be used alter the installation prefix at run time. The directory must
+   allow read/write access for configuration reloads.
 
 .. ts:cv:: CONFIG proxy.config.syslog_facility STRING LOG_DAEMON
 
@@ -333,12 +334,6 @@ System Variables
 
    Specifies at what size to roll the output log at.
 
-.. ts:cv:: CONFIG proxy.config.snapshot_dir STRING snapshots
-
-   The directory in which Traffic Server stores configuration
-   snapshots on the local system. Unless you specify an absolute
-   path, this directory is located in the Traffic Server ``SYSCONFDIR``
-   directory.
 
 Thread Variables
 ----------------
@@ -415,6 +410,19 @@ Thread Variables
 
    This setting specifies the number of active client connections
    for use by :option:`traffic_ctl server restart --drain`.
+
+.. ts:cv:: CONFIG proxy.config.restart.stop_listening INT 0
+   :reloadable:
+
+   This option specifies whether |TS| should close listening sockets while shutting down gracefully.
+
+   ===== ======================================================================
+   Value Description
+   ===== ======================================================================
+   ``0`` Listening sockets will be kept open.
+   ``1`` Listening sockets will be closed when |TS| starts shutting down.
+   ===== ======================================================================
+
 
 .. ts:cv:: CONFIG proxy.config.stop.shutdown_timeout INT 0
    :reloadable:
@@ -848,18 +856,19 @@ ip-resolve
 
    Set how the ``Via`` field is handled on a request to the origin server.
 
-   ===== ============================================
+   ===== ====================================================================
    Value Effect
-   ===== ============================================
+   ===== ====================================================================
    ``0`` Do not modify or set this Via header.
-   ``1`` Update the Via, with normal verbosity.
-   ``2`` Update the Via, with higher verbosity.
-   ``3`` Update the Via, with highest verbosity.
-   ===== ============================================
+   ``1`` Add the basic protocol and proxy identifier.
+   ``2`` Add basic transaction codes.
+   ``3`` Add detailed transaction codes.
+   ``4`` Add full user agent connection :ref:`protocol tags <protocol_tags>`.
+   ===== ====================================================================
 
 .. note::
 
-   The ``Via`` header string can be decoded with the `Via Decoder Ring <http://trafficserver.apache.org/tools/via>`_.
+   The ``Via`` transaction codes can be decoded with the `Via Decoder Ring <http://trafficserver.apache.org/tools/via>`_.
 
 .. ts:cv:: CONFIG proxy.config.http.request_via_str STRING ApacheTrafficServer/${PACKAGE_VERSION}
    :reloadable:
@@ -873,18 +882,19 @@ ip-resolve
 
    Set how the ``Via`` field is handled on the response to the client.
 
-   ===== ============================================
+   ===== ==================================================================
    Value Effect
-   ===== ============================================
-   ``0`` Do not modify or set this via header.
-   ``1`` Update the via, with normal verbosity.
-   ``2`` Update the via, with higher verbosity.
-   ``3`` Update the via, with highest verbosity.
-   ===== ============================================
+   ===== ==================================================================
+   ``0`` Do not modify or set this Via header.
+   ``1`` Add the basic protocol and proxy identifier.
+   ``2`` Add basic transaction codes.
+   ``3`` Add detailed transaction codes.
+   ``4`` Add full upstream connection :ref:`protocol tags <protocol_tags>`.
+   ===== ==================================================================
 
 .. note::
 
-   The ``Via`` header string can be decoded with the `Via Decoder Ring <http://trafficserver.apache.org/tools/via>`_.
+   The ``Via`` transaction acode can be decoded with the `Via Decoder Ring <http://trafficserver.apache.org/tools/via>`_.
 
 .. ts:cv:: CONFIG proxy.config.http.response_via_str STRING ApacheTrafficServer/${PACKAGE_VERSION}
    :reloadable:
@@ -1239,11 +1249,13 @@ Parent Proxy Configuration
 
 .. ts:cv:: CONFIG proxy.config.http.parent_proxy.retry_time INT 300
    :reloadable:
+   :overridable:
 
    The amount of time allowed between connection retries to a parent cache that is unavailable.
 
 .. ts:cv:: CONFIG proxy.config.http.parent_proxy.fail_threshold INT 10
    :reloadable:
+   :overridable:
 
    The number of times the connection to the parent cache can fail before Traffic Server considers the parent unavailable.
 
@@ -1253,16 +1265,20 @@ Parent Proxy Configuration
 
    The total number of connection attempts for a specific transaction allowed to
    a parent cache before Traffic Server bypasses the parent or fails the request
-   (depending on the ``go_direct`` option in the :file:`parent.config` file).
+   (depending on the ``go_direct`` option in the :file:`parent.config` file). The
+   number of parents tried is
+   ``proxy.config.http.parent_proxy.fail_threshold / proxy.config.http.parent_proxy.total_connect_attempts``
 
 .. ts:cv:: CONFIG proxy.config.http.parent_proxy.per_parent_connect_attempts INT 2
    :reloadable:
+   :overridable:
 
    The total number of connection attempts allowed per parent for a specific
    transaction, if multiple parents are used.
 
 .. ts:cv:: CONFIG proxy.config.http.parent_proxy.connect_attempts_timeout INT 30
    :reloadable:
+   :overridable:
 
    The timeout value (in seconds) for parent cache connection attempts.
 
@@ -1393,15 +1409,7 @@ HTTP Connection Timeouts
 HTTP Redirection
 ================
 
-.. ts:cv:: CONFIG proxy.config.http.redirection_enabled INT 0
-   :reloadable:
-   :overridable:
-
-   This setting indicates whether Trafficserver does a redirect follow location on receiving a 3XX Redirect response from the Origin
-   server. The redirection attempt is transparent to the client and the client is served the final response from the redirected-to
-   location.
-
-.. ts:cv:: CONFIG proxy.config.http.number_of_redirections INT 1
+.. ts:cv:: CONFIG proxy.config.http.number_of_redirections INT 0
    :reloadable:
    :overridable:
 
@@ -1524,12 +1532,6 @@ Origin Server Connect Attempts
 
 Congestion Control
 ==================
-
-.. ts:cv:: CONFIG proxy.config.http.congestion_control.enabled INT 0
-
-   Enables (``1``) or disables (``0``) the Congestion Control option, which configures Traffic Server to stop forwarding
-   HTTP requests to origin servers when they become congested. Traffic Server sends the client a message to retry the
-   congested origin server later. Refer to :ref:`using-congestion-control`.
 
 .. ts:cv:: CONFIG proxy.config.http.flow_control.enabled INT 0
    :overridable:
@@ -1665,17 +1667,54 @@ Proxy User Variables
 
    When enabled (``1``), Traffic Server adds the client IP address to the ``X-Forwarded-For`` header.
 
-.. ts:cv:: CONFIG proxy.config.http.normalize_ae_gzip INT 1
+.. ts:cv:: CONFIG proxy.config.http.insert_forwarded STRING none
    :reloadable:
    :overridable:
 
-   Enable (``1``) to normalize all ``Accept-Encoding:`` headers to one of the following:
+   The default value (``none``) means that Traffic Server does not insert or append information to any
+   ``Forwarded`` header (described in IETF RFC 7239) in the request message.  To put information into a
+   ``Forwarded`` header in the request, the value of this variable must be a list of the ``Forwarded``
+   parameters to be inserted.
 
-   -  ``Accept-Encoding: gzip`` (if the header has ``gzip`` or ``x-gzip`` with any ``q``) **OR**
-   -  *blank* (for any header that does not include ``gzip``)
+   ==================  ===============================================================
+   Parameter           Value of parameter place in outgoing Forwarded header
+   ==================  ===============================================================
+   for                 Client IP address
+   by=ip               Proxy IP address
+   by=unknown          The literal string ``unknown``
+   by=servername       Proxy server name
+   by=uuid             Server UUID prefixed with ``_``
+   proto               Protocol of incoming request
+   host                The host specified in the incoming request
+   connection=compact  Connection with basic transaction codes.
+   connection=std      Connection with detailed transaction codes.
+   connection=full     Full user agent connection :ref:`protocol tags <protocol_tags>`
+   ==================  ===============================================================
 
-   This is useful for minimizing cached alternates of documents (e.g. ``gzip, deflate`` vs. ``deflate, gzip``). Enabling this option is
-   recommended if your origin servers use no encodings other than ``gzip``.
+   Each paramater in the list must be separated by ``|`` or ``:``.  For example, ``for|by=uuid|proto`` is
+   a valid value for this variable.  Note that the ``connection`` parameter is a non-standard extension to
+   RFC 7239.  Also note that, while Traffic Server allows multiple ``by`` parameters for the same proxy, this
+   is prohibited by RFC 7239. Currently, for the ``host`` parameter to provide the original host from the
+   incoming client request, `proxy.config.url_remap.pristine_host_hdr`_ must be enabled.
+
+.. ts:cv:: CONFIG proxy.config.http.normalize_ae INT 1
+   :reloadable:
+   :overridable:
+
+   Specifies normalization, if any, of ``Accept-Encoding:`` headers.
+
+   ===== ======================================================================
+   Value Description
+   ===== ======================================================================
+   ``0`` No normalization.
+   ``1`` ``Accept-Encoding: gzip`` (if the header has ``gzip`` or ``x-gzip`` with any ``q``) **OR**
+         *blank* (for any header that does not include ``gzip``)
+   ``2`` ``Accept-Encoding: br`` if the header has ``br`` (with any ``q``) **ELSE**
+         normalize as for value ``1``
+   ===== ======================================================================
+
+   This is useful for minimizing cached alternates of documents (e.g. ``gzip, deflate`` vs. ``deflate, gzip``).
+   Enabling this option is recommended if your origin servers use no encodings other than ``gzip`` or ``br`` (Brotli).
 
 Security
 ========
@@ -2424,6 +2463,20 @@ DNS
    in DNS Injection attacks), particularly in forward or transparent proxies, but
    requires that the resolver populates the queries section of the response properly.
 
+.. ts:cv:: CONFIG proxy.config.dns.connection_mode INT 0
+
+   Three connection modes between |TS| and nameservers can be set -- UDP_ONLY,
+   TCP_RETRY, TCP_ONLY.
+
+
+   ===== ======================================================================
+   Value Description
+   ===== ======================================================================
+   ``0`` UDP_ONLY:  |TS| always talks to nameservers over UDP.
+   ``1`` TCP_RETRY: |TS| first UDP, retries with TCP if UDP response is truncated.
+   ``2`` TCP_ONLY:  |TS| always talks to nameservers over TCP.
+   ===== ======================================================================
+
 HostDB
 ======
 
@@ -2459,6 +2512,10 @@ HostDB
 
    For values above ``200000``, you must increase :ts:cv:`proxy.config.hostdb.max_size`
    by at least 44 bytes per entry.
+
+.. ts:cv:: proxy.config.hostdb.round_robin_max_count INT 16
+
+   The maximum count of DNS answers per round robin hostdb record. The default variable is 16.
 
 .. ts:cv:: CONFIG proxy.config.hostdb.ttl_mode INT 0
    :reloadable:
@@ -2917,7 +2974,13 @@ Diagnostic Logging Configuration
 .. ts:cv:: CONFIG proxy.config.diags.debug.enabled INT 0
    :reloadable:
 
-   Enables logging for diagnostic messages whose log level is `diag` or `debug`.
+   When set to 1, enables logging for diagnostic messages whose log level is `diag` or `debug`.
+
+   When set to 2, interprets the :ts:cv:`proxy.config.diags.debug.client_ip` setting determine whether diagnostic messages are logged.
+
+.. ts:cv:: CONFIG proxy.config.diags.debug.client_ip STRING NULL
+
+   if :ts:cv:`proxy.config.diags.debug.enabled` is set to 2, this value is tested against the source IP of the incoming connection.  If there is a match, all the diagnostic messages for that connection and the related outgoing connection will be logged.
 
 .. ts:cv:: CONFIG proxy.config.diags.debug.tags STRING http|dns
 
@@ -3134,7 +3197,14 @@ SSL Termination
 .. ts:cv:: CONFIG proxy.config.ssl.server.ticket_key.filename STRING ssl_ticket.key
 
    The filename of the default and global ticket key for SSL sessions. The location is relative to the
-   :ts:cv:`proxy.config.ssl.server.cert.path` directory.
+   :ts:cv:`proxy.config.ssl.server.cert.path` directory. One way to generate this would be to run
+   ``head -c48 /dev/urandom | openssl enc -base64 | head -c48 > file.ticket``. Also
+   note that OpenSSL session tickets are sensitive to the version of the ca-certificates.
+
+.. ts:cv:: CONFIG proxy.config.ssl.servername.filename STRING ssl_server_name.config
+
+   The filename of the :file:`ssl_server_name.config` configuration file. If relative, it is relative to the
+   configuration directory (ts:cv:`proxy.config.config_dir`).
 
 .. ts:cv:: CONFIG proxy.config.ssl.max_record_size INT 0
 
@@ -3271,9 +3341,15 @@ Client-Related Configuration
 ----------------------------
 
 .. ts:cv:: CONFIG proxy.config.ssl.client.verify.server INT 0
+   :reloadable:
+   :overridable:
 
    Configures Traffic Server to verify the origin server certificate
-   with the Certificate Authority (CA).
+   with the Certificate Authority (CA). This configuration takes a value between 0 to 2.
+
+:0: Server Certificate will not be verified
+:1: Certificate will be verified and the connection will not be established if verification fails.
+:2: The provided certificate will be verified and the connection will be established irrespective of the verification result. If verification fails the name of the server will be logged.
 
 .. ts:cv:: CONFIG proxy.config.ssl.client.cert.filename STRING NULL
 
@@ -3395,6 +3471,39 @@ HTTP/2 Configuration
    :reloadable:
 
    Enable the experimental HTTP/2 Stream Priority feature.
+
+.. ts:cv:: CONFIG proxy.config.http2.active_timeout_in INT 0
+   :reloadable:
+
+   This is the active timeout of the http2 connection. It is set when the connection is opened
+   and keeps ticking regardless of activity level.
+
+   The value of ``0`` specifies that there is no timeout.
+
+.. ts:cv:: CONFIG proxy.config.http2.accept_no_activity_timeout INT 120
+   :reloadable:
+   :overridable:
+
+   Specifies how long Traffic Server keeps connections to clients open if no
+   activity is received on the connection. Lowering this timeout can ease
+   pressure on the proxy if misconfigured or misbehaving clients are opening
+   a large number of connections without submitting requests.
+
+.. ts:cv:: CONFIG proxy.config.http2.no_activity_timeout_in INT 120
+   :reloadable:
+   :overridable:
+
+   Specifies how long Traffic Server keeps connections to clients open if a
+   transaction stalls. Lowering this timeout can ease pressure on the proxy if
+   misconfigured or misbehaving clients are opening a large number of
+   connections without submitting requests.
+
+.. ts:cv:: CONFIG proxy.config.http2.push_diary_size INT 256
+   :reloadable:
+
+   Indicates the maximum number of HTTP/2 server pushes that are remembered per
+   HTTP/2 connection to avoid duplicate pushes on the same connection. If the
+   maximum number is reached, new entries are not remembered.
 
 Plug-in Configuration
 =====================
@@ -3646,7 +3755,8 @@ Sockets
 .. ts:cv:: CONFIG proxy.config.task_threads INT 2
 
    Specifies the number of task threads to run. These threads are used for
-   various tasks that should be off-loaded from the normal network threads.
+   various tasks that should be off-loaded from the normal network
+   threads. You must have at least one task thread available.
 
 .. ts:cv:: CONFIG proxy.config.allocator.thread_freelist_size INT 512
 

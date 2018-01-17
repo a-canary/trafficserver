@@ -38,7 +38,7 @@
 
 // Initialize a thread to handle HTTP session management
 void
-initialize_thread_for_http_sessions(EThread *thread, int /* thread_index ATS_UNUSED */)
+initialize_thread_for_http_sessions(EThread *thread)
 {
   thread->server_session_pool = new ServerSessionPool;
 }
@@ -246,6 +246,7 @@ void
 HttpSessionManager::init()
 {
   m_g_pool = new ServerSessionPool;
+  eventProcessor.schedule_spawn(&initialize_thread_for_http_sessions, ET_NET);
 }
 
 // TODO: Should this really purge all keep-alive sessions?
@@ -263,7 +264,7 @@ HttpSessionManager::purge_keepalives()
 
 HSMresult_t
 HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockaddr const *ip, const char *hostname,
-                                    ProxyClientTransaction *ua_session, HttpSM *sm)
+                                    ProxyClientTransaction *ua_txn, HttpSM *sm)
 {
   HttpServerSession *to_return = nullptr;
   TSServerSessionSharingMatchType match_style =
@@ -275,9 +276,9 @@ HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockad
 
   // First check to see if there is a server session bound
   //   to the user agent session
-  to_return = ua_session->get_server_session();
+  to_return = ua_txn->get_server_session();
   if (to_return != nullptr) {
-    ua_session->attach_server_session(nullptr);
+    ua_txn->attach_server_session(nullptr);
 
     // Since the client session is reusing the same server session, it seems that the SNI should match
     // Will the client make requests to different hosts over the same SSL session? Though checking
@@ -325,21 +326,17 @@ HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockad
           UnixNetVConnection *server_vc = dynamic_cast<UnixNetVConnection *>(to_return->get_netvc());
           if (server_vc) {
             UnixNetVConnection *new_vc = server_vc->migrateToCurrentThread(sm, ethread);
-            // The VC moved, free up the original one
-            if (new_vc != server_vc) {
-              ink_assert(new_vc == nullptr || new_vc->nh != nullptr);
-              if (!new_vc) {
-                // Close out to_return, we were't able to get a connection
-                to_return->do_io_close();
-                to_return = nullptr;
-                retval    = HSM_NOT_FOUND;
-              } else {
-                // Keep things from timing out on us
-                new_vc->set_inactivity_timeout(new_vc->get_inactivity_timeout());
-                to_return->set_netvc(new_vc);
-              }
+            if (new_vc->thread != ethread) {
+              // Failed to migrate, put it back to global session pool
+              m_g_pool->releaseSession(to_return);
+              to_return = nullptr;
+              retval    = HSM_NOT_FOUND;
+            } else if (new_vc != server_vc) {
+              // The VC migrated, keep things from timing out on us
+              new_vc->set_inactivity_timeout(new_vc->get_inactivity_timeout());
+              to_return->set_netvc(new_vc);
             } else {
-              // Keep things from timing out on us
+              // The VC moved, keep things from timing out on us
               server_vc->set_inactivity_timeout(server_vc->get_inactivity_timeout());
             }
           }

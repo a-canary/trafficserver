@@ -457,12 +457,6 @@ AC_ARG_WITH([max-threads-per-type],
 )
 AC_SUBST(max_threads_per_type)
 
-# Check Brotli
-AC_CHECK_HEADERS([brotli/encode.h], [has_brotli=1],[has_brotli=0])
-AC_CHECK_LIB([brotlienc],[BrotliEncoderCreateInstance],[AC_SUBST([LIB_BROTLIENC],["-lbrotlienc"])],[has_brotli=0])
-AC_SUBST(has_brotli)
-AM_CONDITIONAL([HAS_BROTLI], [ test "x${has_brotli}" = "x1" ])
-
 #
 # Experimental plugins
 #
@@ -498,13 +492,13 @@ PKG_CHECK_MODULES([LIBMAGICKCPP],[Magick++], [
 AM_CONDITIONAL([BUILD_WEBP_TRANSFORM_PLUGIN], [test "x${enable_webp_transform_plugin}" = "xyes"])
 
 #
-# Example plugins. The example plugins are always built, but not always installed. Installing
+# Example plugins. The example plugins are only built and installed if this is enabled. Installing
 # them is useful for QA, but not useful for most users, so we default this to disabled.
 #
 
 AC_MSG_CHECKING([whether to install example plugins])
 AC_ARG_ENABLE([example-plugins],
-  [AS_HELP_STRING([--enable-example-plugins],[install example plugins])],
+  [AS_HELP_STRING([--enable-example-plugins],[build and install example plugins])],
   [],
   [enable_example_plugins=no]
 )
@@ -639,6 +633,9 @@ case $host_os in
     host_os_def="freebsd"
     AM_LDFLAGS="-rdynamic"
     TS_ADDTO(AM_CPPFLAGS, [-I/usr/local/include])
+    TS_ADDTO(AM_CPPFLAGS, [-D_GLIBCXX_USE_C99])
+    TS_ADDTO(AM_CPPFLAGS, [-D_GLIBCXX_USE_C99_MATH])
+    TS_ADDTO(AM_CPPFLAGS, [-D_GLIBCXX_USE_C99_MATH_TR1])
     ;;
   kfreebsd*)
     host_os_def="freebsd"
@@ -825,8 +822,8 @@ case $host_os_def in
 
     AS_IF([test "x$ax_cv_c_compiler_vendor" = "xgnu"], [
       # This is useful for finding odd conversions
-      #    common_opt="-pipe -Wall -Wconversion -Wno-sign-conversion"
-      common_opt="-pipe -Wall -Wextra -Wno-ignored-qualifiers -Wno-unused-parameter"
+      #    common_opt="-pipe -Wall -Wconversion -Wno-sign-conversion -Wno-format-truncation"
+      common_opt="-pipe -Wall -Wextra -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-format-truncation -Wno-noexcept-type"
       debug_opt="-ggdb3 $common_opt"
       release_opt="-g $common_opt $optimizing_flags -feliminate-unused-debug-symbols -fno-strict-aliasing"
       cxx_opt="-Wno-invalid-offsetof"
@@ -1107,8 +1104,20 @@ AC_CHECK_LIB([resolv],[__putlong],[AC_SUBST([LIBRESOLV],["-lresolv"])])
 # ncurses compile tests does not generate unused variable warnings.
 __saved_CFLAGS="$CFLAGS"
 TS_REMOVEFROM(CFLAGS, -Werror)
+
+dnl Red Hat 6 requires special flags for curses to work.
+if test -r /etc/system-release ; then
+  case `cat /etc/system-release` in
+    Red\ Hat*release\ 6.*)
+      TS_ADDTO(CFLAGS, [-Wl,--add-needed])
+      curses_ldflags="-Wl,--add-needed"
+    ;;
+  esac
+fi
+
 AX_WITH_CURSES
 CFLAGS="$__saved_CFLAGS"
+AC_SUBST([CURSES_LDFLAGS],[$curses_ldflags])
 
 #
 # Check for SSL presence and usability
@@ -1252,8 +1261,43 @@ if test "x${enable_pcre}" != "xyes"; then
   AC_MSG_ERROR([Cannot find pcre library. Configure --with-pcre=DIR])
 fi
 
-has_backtrace=0
+# Check Brotli
+AC_CHECK_HEADERS([brotli/encode.h], [has_brotli=1],[has_brotli=0])
+AC_CHECK_LIB([brotlienc],[BrotliEncoderCreateInstance],[AC_SUBST([LIB_BROTLIENC],["-lbrotlienc"])],[has_brotli=0])
+AC_SUBST(has_brotli)
+AM_CONDITIONAL([HAS_BROTLI], [ test "x${has_brotli}" = "x1" ])
+
+#
+# Enable experimental/uri_singing plugin
+# This is here, instead of above, because it needs to know if PCRE is available.
+#
+AC_CHECK_HEADERS([jansson.h], [
+  AC_MSG_CHECKING([whether jansson is dynamic])
+  TS_LINK_WITH_FLAGS_IFELSE([-shared -fPIC -l:libjansson.a],[AC_LANG_PROGRAM(
+                            [#include <jansson.h>],
+                            [(void) json_object();])],
+                            [AC_MSG_RESULT([no]);  LIBJANSSON=-l:libjansson.a],
+                            [AC_MSG_RESULT([yes]); LIBJANSSON=-ljansson])
+  ],
+  [LIBJANSSON=])
+
+AC_CHECK_HEADERS([cjose/cjose.h], [
+  AC_MSG_CHECKING([whether cjose is dynamic])
+  TS_LINK_WITH_FLAGS_IFELSE([-shared -fPIC -l:libcjose.a],[AC_LANG_PROGRAM(
+                            [#include <cjose/cjose.h>],
+                            [(void) cjose_jws_import("", 0, NULL);])],
+                            [AC_MSG_RESULT([no]);  LIBCJOSE=-l:libcjose.a],
+                            [AC_MSG_RESULT([yes]); LIBCJOSE=-lcjose])
+  ],
+  [LIBCJOSE=])
+AC_CHECK_LIB([crypto],[HMAC],[has_libcrypto=1],[has_libcrypto=0])
+
+AM_CONDITIONAL([BUILD_URI_SIGNING_PLUGIN], [test ! -z "${LIBCJOSE}" -a ! -z "${LIBJANSSON}" -a "x${enable_pcre}" = "xyes" -a "x${has_libcrypto}" = "x1"])
+AC_SUBST([LIBCJOSE])
+AC_SUBST([LIBJANSSON])
+
 # Check for backtrace() support
+has_backtrace=0
 AC_CHECK_HEADERS([execinfo.h], [has_backtrace=1],[])
 if test "${has_backtrace}" = "1"; then
   # FreeBSD requires '/usr/ports/devel/libexecinfo' for gdb style backtrace() support
@@ -1263,13 +1307,36 @@ else
 fi
 AC_SUBST(has_backtrace)
 
-# Remote process unwinding is only implemented on Linux because it depends on various Linux-specific
-# features such as /proc filesystem nodes, ptrace(2) and waitpid(2) extensions.
-AS_IF([test "$host_os_def" = "linux"], [
-  PKG_CHECK_MODULES([LIBUNWIND], [libunwind-ptrace], [
-    enable_remote_unwinding=yes
+#
+# use unwind library when possible (can be disabled)
+#
+AC_MSG_CHECKING([whether to use unwind library])
+AC_ARG_ENABLE([unwind],
+  AS_HELP_STRING([--disable-unwind],[Don't use the unwind library]), [
   ], [
-    dnl no remote unwind support
+    enable_unwind="yes"
+    enable_unwind_default="yes"
+])
+AC_MSG_RESULT([$enable_unwind])
+
+AS_IF([test "x$enable_unwind" = "xyes"], [
+  # Remote process unwinding is only implemented on Linux because it depends on various Linux-specific
+  # features such as /proc filesystem nodes, ptrace(2) and waitpid(2) extensions.
+  AS_IF([test "$host_os_def" = "linux"], [
+    PKG_CHECK_MODULES([LIBUNWIND], [libunwind-ptrace], [
+      enable_remote_unwinding=yes
+    ], [
+      AS_IF([test "x$enable_unwind_default" = "xyes"], [
+        AC_MSG_WARN([unwind not found, try disabling it --disable-unwind])
+      ], [
+        AC_MSG_ERROR([unwind not found, try disabling it --disable-unwind])
+      ])
+    ])], [
+    AS_IF([test "x$enable_unwind_default" = "xyes"], [
+      AC_MSG_WARN([unwind only available on linux, try disabling it --disable-unwind])
+    ], [
+      AC_MSG_ERROR([unwind only available on linux, try disabling it --disable-unwind])
+    ])
   ])
 ])
 TS_ARG_ENABLE_VAR([use], [remote_unwinding])
@@ -1545,7 +1612,6 @@ AC_CHECK_HEADERS([sys/types.h \
                   sys/pset.h \
                   sched.h \
                   pthread.h \
-                  pthread_np.h \
                   machine/endian.h \
                   endian.h \
                   sys/sysinfo.h \
@@ -1564,7 +1630,6 @@ AC_CHECK_HEADERS([sys/types.h \
                   ctype.h \
                   siginfo.h \
                   malloc.h \
-                  wait.h \
                   float.h \
                   libgen.h \
                   values.h \
@@ -1582,6 +1647,8 @@ AC_CHECK_HEADERS([sys/types.h \
                   editline/readline.h \
                   ucred.h ])
 
+# On OpenBSD, pthread.h must be included before pthread_np.h
+AC_CHECK_HEADERS([pthread_np.h], [], [], [#include <pthread.h>])
 AC_CHECK_HEADERS([sys/statfs.h sys/statvfs.h sys/disk.h sys/disklabel.h])
 AC_CHECK_HEADERS([linux/hdreg.h linux/fs.h linux/major.h])
 
@@ -1857,6 +1924,17 @@ AS_IF([test "x$enable_experimental_plugins" = "xyes"],
 AM_CONDITIONAL([BUILD_REMAP_STATS_PLUGIN],
   [ test "x$enable_experimental_plugins" = "xyes" -a "x$ac_cv_header_search_h" = "xyes" -a "x$ac_cv_type_struct_hsearch_data" = "xyes" -a "x$ac_cv_func_hcreate_r" = "xyes" -a "x$ac_cv_func_hsearch_r" = "xyes" ])
 
+AC_ARG_WITH([default-stack-size],
+  [AS_HELP_STRING([--with-default-stack-size],[specify the default stack size in bytes [default=1048576]])],
+  [
+  with_default_stack_size="$withval"
+  ],[
+  with_default_stack_size="1048576"
+  ]
+)
+
+AC_SUBST([default_stack_size], [$with_default_stack_size])
+
 #
 # use modular IOCORE
 #
@@ -1959,6 +2037,7 @@ AC_CONFIG_FILES([
   tools/Makefile
   tools/trafficserver.pc
   tools/tsxs
+  tests/unit_tests/Makefile
 ])
 
 # -----------------------------------------------------------------------------

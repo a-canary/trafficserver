@@ -30,27 +30,27 @@ use Apache::TS;
 
 # Mgmt API command constants, should track ts/mgmtapi.h
 use constant {
-    TS_FILE_READ            => 0,
-    TS_FILE_WRITE           => 1,
-    TS_RECORD_SET           => 2,
-    TS_RECORD_GET           => 3,
-    TS_PROXY_STATE_GET      => 4,
-    TS_PROXY_STATE_SET      => 5,
-    TS_RECONFIGURE          => 6,
-    TS_RESTART              => 7,
-    TS_BOUNCE               => 8,
-    TS_EVENT_RESOLVE        => 9,
-    TS_EVENT_GET_MLT        => 10,
-    TS_EVENT_ACTIVE         => 11,
-    TS_EVENT_REG_CALLBACK   => 12,
-    TS_EVENT_UNREG_CALLBACK => 13,
-    TS_EVENT_NOTIFY         => 14,
-    TS_SNAPSHOT_TAKE        => 15,
-    TS_SNAPSHOT_RESTORE     => 16,
-    TS_SNAPSHOT_REMOVE      => 17,
-    TS_SNAPSHOT_GET_MLT     => 18,
-    TS_DIAGS                => 19,
-    TS_STATS_RESET          => 20
+    TS_RECORD_SET                 => 0,
+    TS_RECORD_GET                 => 1,
+    TS_PROXY_STATE_GET            => 2,
+    TS_PROXY_STATE_SET            => 3,
+    TS_RECONFIGURE                => 4,
+    TS_RESTART                    => 5,
+    TS_BOUNCE                     => 6,
+    TS_EVENT_RESOLVE              => 7,
+    TS_EVENT_GET_MLT              => 8,
+    TS_EVENT_ACTIVE               => 9,
+    TS_EVENT_REG_CALLBACK         => 10,
+    TS_EVENT_UNREG_CALLBACK       => 11,
+    TS_EVENT_NOTIFY               => 12,
+    TS_STATS_RESET_NODE           => 13,
+    TS_STORAGE_DEVICE_CMD_OFFLINE => 14,
+    TS_RECORD_MATCH_GET           => 15,
+    TS_API_PING                   => 16,
+    TS_SERVER_BACKTRACE           => 17,
+    TS_RECORD_DESCRIBE_CONFIG     => 18,
+    TS_LIFECYCLE_MESSAGE          => 19,
+    TS_UNDEFINED_OP               => 20
 };
 
 use constant {
@@ -512,7 +512,6 @@ The Apache Traffic Server Administration Manual will explain what these strings 
  proxy.config.http.push_method_enabled
  proxy.config.http.quick_filter.mask
  proxy.config.http.record_heartbeat
- proxy.config.http.redirection_enabled
  proxy.config.http.referer_default_redirect
  proxy.config.http.referer_filter
  proxy.config.http.referer_format_redirect
@@ -591,7 +590,6 @@ The Apache Traffic Server Administration Manual will explain what these strings 
  proxy.config.res_track_memory
  proxy.config.reverse_proxy.enabled
  proxy.config.reverse_proxy.oldasxbehavior
- proxy.config.snapshot_dir
  proxy.config.socks.accept_enabled
  proxy.config.socks.accept_port
  proxy.config.socks.connection_attempts
