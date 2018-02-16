@@ -437,6 +437,17 @@ HttpSM::attach_client_session(ProxyClientTransaction *client_vc, IOBufferReader 
   }
   ua_txn = client_vc;
 
+  // It seems to be possible that the ua_txn pointer will go stale before log entries for this HTTP transaction are
+  // generated.  Therefore, collect information that may be needed for logging from the ua_txn object at this point.
+  //
+  _client_transaction_id = ua_txn->get_transaction_id();
+  {
+    auto p = ua_txn->get_parent();
+    if (p) {
+      _client_connection_id = p->connection_id();
+    }
+  }
+
   // Collect log & stats information
   client_tcp_reused         = !(ua_txn->is_first_transaction());
   SSLNetVConnection *ssl_vc = dynamic_cast<SSLNetVConnection *>(netvc);
@@ -4838,10 +4849,9 @@ HttpSM::do_http_server_open(bool raw)
   if (t_state.txn_conf->origin_max_connections > 0) {
     ConnectionCount *connections = ConnectionCount::getInstance();
 
-    INK_MD5 hostname_hash;
-    MD5Context md5_ctx;
-    md5_ctx.hash_immediate(hostname_hash, static_cast<const void *>(t_state.current.server->name),
-                           strlen(t_state.current.server->name));
+    CryptoHash hostname_hash;
+    CryptoContext().hash_immediate(hostname_hash, static_cast<const void *>(t_state.current.server->name),
+                                   strlen(t_state.current.server->name));
 
     if (connections->getCount(t_state.current.server->dst_addr, hostname_hash,
                               (TSServerSessionSharingMatchType)t_state.txn_conf->server_session_sharing_match) >=
@@ -5299,10 +5309,9 @@ HttpSM::handle_http_server_open()
 {
   // if we were a queued request, we need to decrement the queue size-- as we got a connection
   if (t_state.origin_request_queued) {
-    INK_MD5 hostname_hash;
-    MD5Context md5_ctx;
-    md5_ctx.hash_immediate(hostname_hash, static_cast<const void *>(t_state.current.server->name),
-                           strlen(t_state.current.server->name));
+    CryptoHash hostname_hash;
+    CryptoContext().hash_immediate(hostname_hash, static_cast<const void *>(t_state.current.server->name),
+                                   strlen(t_state.current.server->name));
 
     ConnectionCountQueue *waiting_connections = ConnectionCountQueue::getInstance();
     waiting_connections->incrementCount(t_state.current.server->dst_addr, hostname_hash,
@@ -5606,8 +5615,15 @@ HttpSM::do_setup_post_tunnel(HttpVC_t to_vc_type)
     break;
   }
 
+  // The user agent may support chunked (HTTP/1.1) or not (HTTP/2)
+  // In either case, the server will support chunked (HTTP/1.1)
   if (chunked) {
-    tunnel.set_producer_chunking_action(p, 0, TCA_PASSTHRU_CHUNKED_CONTENT);
+    if (ua_txn->is_chunked_encoding_supported()) {
+      tunnel.set_producer_chunking_action(p, 0, TCA_PASSTHRU_CHUNKED_CONTENT);
+    } else {
+      tunnel.set_producer_chunking_action(p, 0, TCA_CHUNK_CONTENT);
+      tunnel.set_producer_chunking_size(p, 0);
+    }
   }
 
   ua_txn->set_inactivity_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_no_activity_timeout_in));
