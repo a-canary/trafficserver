@@ -77,6 +77,13 @@ HostDBCache hostDB;
 
 void ParseHostFile(const char *path, unsigned int interval);
 
+template <typename T>
+inline T
+CAP(T const &min, T const &max, T const &value)
+{
+  return (value > min) ? ((value < max) ? value : max) : min;
+}
+
 char *
 HostDBInfo::srvname(HostDBRoundRobin *rr) const
 {
@@ -596,11 +603,10 @@ HostDBContinuation::insert(unsigned int attl)
 
   HostDBInfo *r = HostDBInfo::alloc();
   r->key        = folded_hash;
-  if (attl > HOST_DB_MAX_TTL) {
-    attl = HOST_DB_MAX_TTL;
-  }
+
   r->ip_timeout_interval = attl;
-  r->ip_timestamp        = hostdb_current_interval;
+  r->ip_timestamp        = CAP(1u, HOST_DB_MAX_TTL, attl);
+
   Debug("hostdb", "inserting for: %.*s: (hash: %" PRIx64 ") now: %u timeout: %u ttl: %u", hash.host_len, hash.host_name,
         folded_hash, r->ip_timestamp, r->ip_timeout_interval, attl);
 
@@ -1120,16 +1126,20 @@ HostDBContinuation::lookup_done(IpAddr const &ip, const char *aname, bool around
       Debug("hostdb", "failed for %s", hash.ip.toString(b, sizeof b));
     }
     if (r == nullptr) {
-      r = insert(hostdb_ip_fail_timeout_interval); // currently ... 0
+      r = insert(hostdb_ip_fail_timeout_interval);
     } else {
-      ttl_seconds = hostdb_ip_fail_timeout_interval;
+      r->ip_timestamp        = hostdb_current_interval;
+      r->ip_timeout_interval = CAP(1u, HOST_DB_MAX_TTL, hostdb_ip_fail_timeout_interval);
     }
+
     r->round_robin     = false;
     r->round_robin_elt = false;
     r->is_srv          = is_srv();
     r->reverse_dns     = !is_byname() && !is_srv();
 
     r->set_failed();
+    return r;
+
   } else {
     switch (hostdb_ttl_mode) {
     default:
@@ -1152,16 +1162,14 @@ HostDBContinuation::lookup_done(IpAddr const &ip, const char *aname, bool around
     }
     HOSTDB_SUM_DYN_STAT(hostdb_ttl_stat, ttl_seconds);
 
-    // Not sure about this - it seems wrong but I can't be sure. If we got a fail
-    // in the DNS event, 0 is passed in which we then change to 1 here. Do we need this
-    // to be non-zero to avoid an infinite timeout?
-    if (0 == ttl_seconds) {
-      ttl_seconds = 1;
+    if (r == nullptr) {
+      r = insert(ttl_seconds);
+    } else {
+      // update the TTL
+      r->ip_timestamp        = hostdb_current_interval;
+      r->ip_timeout_interval = CAP(1u, HOST_DB_MAX_TTL, ttl_seconds);
     }
 
-    if (r == nullptr) {
-      r = insert(hostdb_ip_fail_timeout_interval); // currently ... 0
-    }
     r->round_robin_elt = false; // only true for elements explicitly added as RR elements.
     if (is_byname()) {
       ip_text_buffer b;
@@ -1195,11 +1203,6 @@ HostDBContinuation::lookup_done(IpAddr const &ip, const char *aname, bool around
       r->is_srv      = false;
     }
   }
-
-  // Finally, set the TTL
-  r->ip_timeout_interval = ttl_seconds;
-  // set the "lookup_done" interval
-  r->ip_timestamp = hostdb_current_interval;
 
   ink_assert(!r->round_robin || !r->reverse_dns);
   return r;
