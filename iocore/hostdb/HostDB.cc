@@ -28,6 +28,7 @@
 #include "ts/I_Layout.h"
 #include "Show.h"
 #include "ts/Tokenizer.h"
+#include "ts/ink_std_compat.h"
 
 #include <utility>
 #include <vector>
@@ -76,13 +77,6 @@ ClassAllocator<HostDBContinuation> hostDBContAllocator("hostDBContAllocator");
 HostDBCache hostDB;
 
 void ParseHostFile(const char *path, unsigned int interval);
-
-template <typename T>
-inline T
-CAP(T const &min, T const &max, T const &value)
-{
-  return (value > min) ? ((value < max) ? value : max) : min;
-}
 
 char *
 HostDBInfo::srvname(HostDBRoundRobin *rr) const
@@ -605,7 +599,7 @@ HostDBContinuation::insert(unsigned int attl)
   r->key        = folded_hash;
 
   r->ip_timeout_interval = attl;
-  r->ip_timestamp        = CAP(1u, HOST_DB_MAX_TTL, attl);
+  r->ip_timestamp        = std::clamp(attl, 1u, HOST_DB_MAX_TTL);
 
   Debug("hostdb", "inserting for: %.*s: (hash: %" PRIx64 ") now: %u timeout: %u ttl: %u", hash.host_len, hash.host_name,
         folded_hash, r->ip_timestamp, r->ip_timeout_interval, attl);
@@ -1129,7 +1123,7 @@ HostDBContinuation::lookup_done(IpAddr const &ip, const char *aname, bool around
       r = insert(hostdb_ip_fail_timeout_interval);
     } else {
       r->ip_timestamp        = hostdb_current_interval;
-      r->ip_timeout_interval = CAP(1u, HOST_DB_MAX_TTL, hostdb_ip_fail_timeout_interval);
+      r->ip_timeout_interval = std::clamp(hostdb_ip_fail_timeout_interval, 1u, HOST_DB_MAX_TTL);
     }
 
     r->round_robin     = false;
@@ -1167,7 +1161,7 @@ HostDBContinuation::lookup_done(IpAddr const &ip, const char *aname, bool around
     } else {
       // update the TTL
       r->ip_timestamp        = hostdb_current_interval;
-      r->ip_timeout_interval = CAP(1u, HOST_DB_MAX_TTL, ttl_seconds);
+      r->ip_timeout_interval = std::clamp(ttl_seconds, 1u, HOST_DB_MAX_TTL);
     }
 
     r->round_robin_elt = false; // only true for elements explicitly added as RR elements.

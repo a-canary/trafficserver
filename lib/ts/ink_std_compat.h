@@ -22,8 +22,11 @@
  */
 
 #pragma once
-
+//
 #if __cplusplus < 201402L
+//
+// C++ 14
+//
 #include <memory>
 namespace std
 {
@@ -33,5 +36,24 @@ make_unique(Args &&... args)
 {
   return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
 }
+} // namespace std
+#endif
+
+//
+#if __cplusplus < 201700L
+//
+// C++ 17
+//
+#include "ink_assert.h"
+namespace std
+{
+template <typename T>
+constexpr const T &
+clamp(const T &v, const T &lo, const T &hi)
+{
+  ink_release_assert(lo <= hi);
+  return (v < lo) ? lo : (hi < v) ? hi : v;
 }
+
+} // namespace std
 #endif
