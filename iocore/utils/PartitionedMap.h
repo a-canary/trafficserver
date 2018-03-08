@@ -135,16 +135,16 @@ private:
  * So this code will hash the key before acquiring the lock.
  *
  * @tparam Key_t      - the key of this table. Must implement std::lock<Key_t>.
- * @tparam ValuePtr_t - a pointer to the value
+ * @tparam Value_t - a pointer to the value
  */
-template <typename Key_t, typename ValuePtr_t> struct LookupMap {
+template <typename Key_t, typename Value_t> struct LookupMap {
 public:
-  using Map_t = std::unordered_map<size_t, ValuePtr_t>;
+  using Map_t = std::unordered_map<size_t, Value_t>;
 
   LookupMap(float _max_load_factor = 16.0f) { m_map.max_load_factor(_max_load_factor); };
 
   /// returns a value reference.
-  ValuePtr_t
+  Value_t
   get(const Key_t &key)
   {
     // because this a blocking lock, do the hash first
@@ -154,7 +154,7 @@ public:
 
     auto elm         = m_map.find(hash);
     const bool found = (elm != m_map.end());
-    ValuePtr_t ptr   = found ? *elm : ValuePtr_t{};
+    Value_t ptr      = found ? *elm : Value_t{};
 
     m_mutex.unlock();
 
@@ -162,7 +162,7 @@ public:
   }
 
   void
-  put(const Key_t &key, ValuePtr_t &val)
+  put(const Key_t &key, Value_t &val)
   {
     // because this a blocking lock, do the hash first
     size_t hash = std::hash<Key_t>()(key);
@@ -192,56 +192,87 @@ private:
 };
 
 /// Intended to provide a thread safe lookup. Only the part of the map is locked, for the duration of the lookup.
-template <typename Key_t, typename ValuePtr_t, typename Mutex_t> struct PartitionedMap {
+template <typename Key_t, typename Value_t, typename Mutex_t> struct PartitionedMap {
 private:
-  using Map_t = std::unordered_map<size_t, ValuePtr_t>;
+  using Map_t = std::unordered_map<size_t, Value_t>;
 
 public:
-  PartitionedMap(size_t num_partitions) : m_maps(new Map_t[num_partitions]), m_lock_pool(num_partitions) {}
+  PartitionedMap(size_t num_partitions) : m_maps(num_partitions), m_lock_pool(num_partitions) {}
 
   /// returns a value reference.
-  ValuePtr_t
+  Value_t
   get(const Key_t &key)
   {
-    size_t hash                = std::hash<Key_t>()(key);
-    auto part_idx              = m_lock_pool.getIndex(hash);
-    Mutex *map_partition_mutex = m_lock_pool.getMutex(part_idx);
+    size_t hash                  = std::hash<Key_t>()(key);
+    auto part_idx                = m_lock_pool.getIndex(hash);
+    Mutex_t *map_partition_mutex = m_lock_pool.getMutex(part_idx);
 
-    map_partition_mutex->lock();
+    map_partition_mutex->lock(); // the map could rehash during a concurrent put, and mess with the elm
 
-    Map_t &map     = m_maps[part_idx];
-    ValuePtr_t ptr = {};
-    auto elm       = map.find(hash);
+    Map_t &map  = m_maps[part_idx];
+    Value_t val = {};
+    auto elm    = map.find(key);
     if (elm != map.end()) {
-      ptr = *elm;
+      val = *elm;
     }
 
     map_partition_mutex->unlock();
 
-    return ptr;
+    return val;
   }
 
   void
-  put(const Key_t &key, ValuePtr_t &val)
+  put(const Key_t &key, Value_t &val)
   {
-    size_t hash                = std::hash<Key_t>()(key);
-    auto part_idx              = m_lock_pool.getIndex(hash);
-    Mutex *map_partition_mutex = m_lock_pool.getMutex(part_idx);
+    size_t hash                  = std::hash<Key_t>()(key);
+    auto part_idx                = m_lock_pool.getIndex(hash);
+    Mutex_t *map_partition_mutex = m_lock_pool.getMutex(part_idx);
 
     map_partition_mutex->lock();
 
-    m_maps[part_idx][hash] = val;
+    m_maps[part_idx][key] = val;
 
     map_partition_mutex->unlock();
   }
 
-  ValuePtr_t
-  visit(bool (*func)(ValuePtr_t, void *), void *ref)
+  void
+  erase(const Key_t &key)
+  {
+    size_t hash                  = std::hash<Key_t>()(key);
+    auto part_idx                = m_lock_pool.getIndex(hash);
+    Mutex_t *map_partition_mutex = m_lock_pool.getMutex(part_idx);
+
+    map_partition_mutex->lock();
+
+    m_maps[part_idx].erase(key);
+
+    map_partition_mutex->unlock();
+  }
+
+  void
+  replace(const Key_t &key_erase, const Key_t &key_put, Value_t &val)
+  {
+    auto part_idx_a  = m_lock_pool.getIndex(std::hash<Key_t>()(key_erase));
+    auto part_idx_b  = m_lock_pool.getIndex(std::hash<Key_t>()(key_put));
+    Mutex_t *mutex_a = m_lock_pool.getMutex(part_idx_a);
+    Mutex_t *mutex_b = m_lock_pool.getMutex(part_idx_b);
+
+    std::lock(mutex_a, mutex_b);
+
+    m_maps[part_idx_a].erase(key_erase);
+    m_maps[part_idx_b][key_put] = val;
+
+    mutex_a->unlock();
+    mutex_b->unlock();
+  }
+
+  Value_t
+  visit(bool (*func)(Value_t, void *), void *ref)
   {
     for (int part_idx = 0; part_idx < m_lock_pool.size(); part_idx) {
       LockGuard part_lock(m_lock_pool.getMutex(part_idx));
 
-      for (ValuePtr_t val : m_maps[part_idx]) {
+      for (Value_t &val : m_maps[part_idx]) {
         bool done = func(val, ref);
         if (done) {
           return val;
@@ -250,13 +281,13 @@ public:
     }
   }
 
-  ValuePtr_t
-  visit(std::function<bool(ValuePtr_t &)> lambda)
+  Value_t
+  visit(std::function<bool(Value_t &)> lambda)
   {
     for (int part_idx = 0; part_idx < m_lock_pool.size(); part_idx) {
       LockGuard lock(m_lock_pool.getMutex(part_idx));
 
-      for (ValuePtr_t val : m_maps[part_idx]) {
+      for (Value_t val : m_maps[part_idx]) {
         bool done = lambda(val);
         if (done) {
           return val;
@@ -266,7 +297,7 @@ public:
   }
 
 private:
-  Map_t m_maps[];
+  vector<Map_t> m_maps;
   LockPool<Mutex_t> m_lock_pool;
 };
 
