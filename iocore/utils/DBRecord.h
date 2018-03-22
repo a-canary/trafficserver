@@ -1,6 +1,4 @@
-#ifndef _Record_h
-#define _Record_h
-
+#pragma once
 #include "stdint.h"
 #include <cstddef>
 #include <atomic>
@@ -9,12 +7,46 @@
 #include <type_traits>
 
 #include "ts/ink_assert.h"
-#include "ts/MT_hashtable.h"
+
+/// copies a shared data, them overwrites the
+// TODO move this to new file.
+static LockPool copy_swap_write_locks(64);
+
+template <typename T> class writer_ptr : public unique_ptr<Value_t>
+{
+private:
+  unique_lock write_lock;        // block other writers
+  const shared_ptr<T> &swap_loc; // update this pointer when done
+
+public:
+  writer_ptr() {}
+  writer_ptr(const shared_ptr<T> &data_ptr) : swap_loc(data_ptr), unique_ptr<Value_t>(new T(*data_ptr))
+  {
+    // get a lock for the memory address
+    write_lock = unique_lock(copy_swap_write_locks.getMutex(static_cast<size_t>(&data_ptr)));
+  }
+
+  void
+  abort()
+  {
+    write_lock.release();
+    delete this;
+  }
+
+  ~writer_ptr()
+  {
+    if (!write_lock) {
+      return;
+    }
+
+    // point the existing reader_ptr to the writer_ptr
+    swap_loc = reinterpret_cast<unique_ptr<Value_t>>(this);
+  }
+};
 
 /// runtime defined static container
 /** The size of this structure is actually zero, so it will not change the size of your derived class.
  * But new and delete are overriden to use allocate enough bytes of the derived type + properties added
- * at run time using ioBufferAllocator.
  *
  * Also all bools are packed to save space using the *Bit methods.
  *
@@ -22,165 +54,227 @@
  * size property sets.
  */
 
-//     DBSchema::DBField; // a column; a run-time defined data type
+/*
 
-namespace DB
-{
-struct Field;
-struct Schema; // a collection of fields; a run-time defined memory map to interpret a record's memory
-struct Record; // a row; a thread-locked block of type-erased memory
-struct Index;  // a thread-safe map of Record shared pointers
+atomic<T> &a = HostRecords[host_name][atomic_field]
 
-using std;
-using Offset_t = uint16_t;
+const T *b = HostRecords[host_name][cow_field];
+const T *c = HostRecords[host_name][const_field];
 
-struct Field {
-  using Func_t = void(void *);
+Writer<T> d = HostRecords->writeLock(host_name);
+HostRecords->writeCommit(d);
 
-  Offset_t offset;
-  Func_t *construct_fn;
-  Func_t *destruct_fn;
-  string name;
-};
+Record
+.atomic_mem = PropBlock
+.const_mem = const PropBlock
+.*cow_mem = const shared_ptr<PropBlock>
 
-struct Schema {
-  uint32_t total_structs_size;
 
-  /// total bits of all declared propertyBits
-  uint32_t num_packed_bits = DBRecStatusBits::num_status_bits;
+Record::operator[](Field const &)
 
-  /// the number of class instances in use.
-  atomic_uint instance_count;
++Add field::is_atomic to allow operator[], block get and writeLock
++when allocating non-atomic type, allocate a size of shared_ptr, Writer class will
 
-  vector<Field> fields;
+*/
 
-  vector<IndexManager> index_managers;
-};
+template <typename Derived_t> struct Record {
+  using Record_t = Record<Derived_t>;
 
-// make a static member of Record to define the update, add? erase?
+  using std;
 
-struct IndexManager {
-  vector<Function<void(self_type const &, self_type const &)>> db_index_updater;
-};
+  enum FieldAccessEnum { ATOMIC, BIT, CONST, COPYSWAP, NUM_ACCESS_TYPES }; ///< all types must allow unblocking MT read access
 
-template <typename Field_t>
-Offset_t
-addField(Schema &schema, const string &field_name)
-{
-  ink_assert_release(schema.instance_count == 0); // it's too late, we already started allocating.
-  static_assert(is_same<Field_t, bool>::value == false,
-                "Use PropBlockDeclareBit so we can pack bits, and we can't return a pointer to a bit.");
-  static_assert(is_trivially_copyable<Field_t, bool>::value == true,
-                "because we are type erasing, it's easier if all data is trival.");
-
-  Offset_t offset = schema.total_structs_size;
-  schema.total_structs_size += sizeof(Field_t);
-
-  // use default constructors of class
-  static auto consturct_fn = [](void *ptr) { new (ptr) Field_t; };
-  static auto destruct_fn  = [](void *ptr) { reinterpret_cast<Field_t *>(ptr)->~Field_t(); };
-
-  schema.fields.emplace_back({offset, consturct_fn, destruct_fn, field_name});
-  return offset;
-}
-
-Offset_t addBit(Schema &schema, const string &name) // all bits init to 0.
-{
-  ink_assert_release(schema.instance_count == 0); // it's too late, we already started allocating.
-  Offset_t offset = schema.num_packed_bits;
-  schema.num_packed_bits++;
-  return offset;
-}
-
-template <typename Field_t, class Record_t>
-shared_ptr<DBIndex<Field_t, Record_t>>
-addIndex(Schema &schema, Offset_t offset)
-{
-  ink_assert_release(m_instance_count == 0); // it's too late, we already started allocating.
-  static_assert(is_same<Field_t, bool>::value == false,
-                "Use PropBlockDeclareBit so we can pack bits, and we can't return a pointer to a bit.");
-  static_assert(is_trivially_copyable<Field_t, bool>::value == true,
-                "because we are type erasing, it's easier if all data is trival.");
-
-  auto db_index = std::make_shared(new DBIndex<Field_t, Record_t>());
-
-  static auto replace_fn = [db_index, offset](shared_ptr<Record_t> const &rec_old, shared_ptr<Record_t> const &rec_new) {
-    Field_t const &fval_old = rec_old[offset];
-    Field_t const &fval_new = rec_new[offset];
-    if (fval_old == fval_new) {
-      db_index->put(rec);
-    } else {
-      db_index->replace(fval_old, fval_new, rec_new);
-    }
+  /// strongly type the FieldId to avoid branching and switching
+  struct AbstractFieldId {
+    uint8_t offset;
+  };
+  struct AtomicFieldId : private FieldBaseId {
+  };
+  struct BitFieldId : private FieldBaseId {
+  };
+  struct ConstFieldId : private FieldBaseId {
+  };
+  struct CopySwapFieldId : private FieldBaseId {
   };
 
-  index_managers.emplace_back({db_index, offset});
-  return db_index;
-}
+  /// defines a runtime "member variable", element of the blob
+  struct FieldSchema {
+    using Func_t = void(void *);
 
-}; // namespace DB
+    FieldAccessEnum access; ///< which API is used to access the data
+    FieldBaseId offset;     ///< pointer to the memory
+    Func_t *construct_fn;   ///< the data type's constructor
+    Func_t *destruct_fn;    ///< the data type's destructor
+  };
 
-bool
-reset(Schema &schema)
-{
-  if (schema.instance_count > 0) {
-    // free instances before calling this so we don't leak memory
-    return false;
-  }
-  schema.total_structs_size = 0;
-  schema.num_packed_bits    = 0;
-  schema.fields.clear();
-  return true;
-}
+  /// manages the subdata structures
+  struct Schema {
+    map<string, Field> fields;              ///< defined elements of the blob
+    uint32_t mem_sizes[NUM_ACCESS_TYPES];   ///< bytes to allocate for substructures (fields)
+    uint32_t mem_offsets[NUM_ACCESS_TYPES]; ///< first byte offset of that access type
+    uint32_t bit_count;
+    uint32_t alloc_size; ///< bytes to allocate Record
 
-size_t
-recordSize(Schema const &schema)
-{
-  return schema.total_structs_size + (schema.m_num_packed_bits + 7) / 8;
-}
+    atomic_uint instance_count; ///< the number of class instances in use.
 
-//////////////////////////////////////////
-//
-//
-temeplate<Schema &(*GetSchema)()> struct Record {
-  using self_type     = Record<GetSchema>;
-  using self_ptr_type = shared_ptr<self_type>;
-  static Schema &
-  getSchema()
-  {
-    return GetSchema();
-  }
-  // returns a typed const reference to a field (read only)
-  template <typename Field_t>
-  Field_t const &[](Offset_t offset) const {
-    char const *ptr = static_cast<char const *>(this);
-    return *static_cast<Field_t const *>(ptr + offset));
-  }
-
-  // returns a typed reference to a field (writable)
-  template <typename Field_t>
-  Field_t &operator[](Offset_t offset)
-  {
-    char *ptr = static_cast<char *>(this);
-    return *static_cast<Field_t *>(ptr + offset));
-  }
-
-  bool
-  unpackBit(Offset_t offset) const
-  {
-    char const *c = this[getSchema().total_structs_size] c += offset / 8;
-    return (c & (1 << (offset % 8))) != 0;
-  }
-
-  void
-  packBit(Offset_t offset, bool val)
-  {
-    char const *c = this[getSchema().total_structs_size] c += offset / 8;
-    if (val) {
-      *c |= (1 << (offset % 8));
-    } else {
-      *c &= ~(1 << (offset % 8));
+    /// Constructor
+    Schema() : num_packed_bits(0), alloc_size(0), instance_count(0)
+    {
+      mem_sizes_atomic = mem_sizes_const = mem_sizes_copyswap = mem_sizes_bits = sizeof(Derived_t);
     }
+
+  private:
+    /// Add a new Field to this record type
+    template <FieldAccessEnum Access_t, typename Field_t>
+    FieldBaseId
+    addField(const string &field_name)
+    {
+      static_assert(Access_t == BIT || is_same<Field_t, bool>::value == false,
+                    "Use BitField so we can pack bits, they are still atomic.");
+      static_assert(Access_t != COPYSWAP || is_copy_constructible<Field_t>::value == true,
+                    "can't use copyswap with a copy constructor.");
+
+      ink_assert_release(instance_count == 0); // it's too late, we already started allocating.
+
+      AbstractFieldId field_id;
+      if (Access_t == BIT) {
+        field_id.offset = bit_count;          // get bit offset.
+        ++bit_count;                          // inc bit offset
+        mem_sizes[BIT] = (bit_count + 7) / 8; // round up to bytes
+      } else {
+        field_id.offset = mem_sizes[Access_t];  // get memory offset.
+        mem_sizes[Access_t] += sizeof(Field_t); // increase memory counter
+      }
+
+      // update mem offsets
+      {
+        uint32_t mem_offset = sizeof(Derived_t);
+        for (int e = 0; e < NUM_ACCESS_TYPES; e++) {
+          mem_offsets[e] = mem_offset;
+          mem_offset += mem_size[e];
+        }
+        alloc_size = mem_offset;
+      }
+
+      // capture the default constructors of the data type
+      static auto consturct_fn = [](void *ptr) { new (ptr) Field_t; };
+      static auto destruct_fn  = [](void *ptr) { static_cast<Field_t *>(ptr)->~Field_t(); };
+
+      fields[field_name] = FieldSchema{offset, consturct_fn, destruct_fn, field_name};
+      return offset;
+    }
+
+  public:
+    template <typename Field_t>
+    AtomicFieldId
+    addAtomicField(const string &field_name)
+    {
+      return addField<ATOMIC, atomic<Field_t>>(field_name);
+    }
+
+    template <typename Field_t>
+    BitFieldId
+    addBitField(const string &field_name)
+    {
+      return addField<BIT, Field_t>(field_name);
+    }
+
+    template <typename Field_t>
+    ConstFieldId
+    addConstField(const string &field_name)
+    {
+      return addField<CONST, Field_t>(field_name);
+    }
+
+    template <typename Field_t>
+    CopySwapFieldId
+    addCopySwapField(const string &field_name)
+    {
+      return addField<COPYSWAP, const shared_ptr<Field_t>>(field_name);
+    }
+
+    bool
+    reset()
+    {
+      if (instance_count > 0) {
+        // free instances before calling this so we don't leak memory
+        return false;
+      }
+      for (auto &mem_size : mem_sizes) {
+        mem_size = 0;
+      }
+      bit_count = 0;
+      fields.clear();
+      return true;
+    }
+  }; // end Schema struct
+
+  //////////////////////////////////////////
+  /// Record static data
+  static Schema schema;
+
+  //////////////////////////////////////////
+  /// Record Methods
+
+  /// return a reference to an atomic field
+  template <typename Field_t> atomic<Field_t> &operator[](AtomicFieldId field)
+  {
+    return static_cast<atomic<Field_t>>(this_ptr() + schema.mem_offsets[ATOMIC] + field.offset));
+  }
+
+  /// atomically read a bit value
+  template <typename Field_t> bool const operator[](BitFieldId field) const { return unpackBit(field); }
+
+  /// atomically read a bit value
+  bool const
+  unpackBit(BitFieldId field) const
+  {
+    const atomic_char &c  = static_cast<const atomic_char*>(this_ptr() + schema.mem_offsets[BIT] + field.offset / 8));
+    const char mask       = 1 << (field.offset % 8);
+    return (c.load() & mask) != 0;
+  }
+
+  /// atomically write a bit value
+  void
+  packBit(BitFieldId field, bool const val)
+  {
+    atomic_char &c  = static_cast<const atomic_char*>(this_ptr() + schema.mem_offsets[BIT] + field.offset / 8));
+    const char mask = 1 << (offset % 8);
+    if (val) {
+      c.fetch_or(mask);
+    } else {
+      c.fetch_and(~mask);
+    }
+  }
+
+  /// return a reference to an const field
+  template <typename Field_t> Field_t const &operator[](ConstFieldId field) const
+  {
+    return *static_cast<const Field_t*>(this_ptr() + schema.mem_offsets[CONST] + field.offset));
+  }
+
+  /// return a reference to an const field that is non-const for initialization purposes
+  template <typename Field_t>
+  Field_t &
+  init(ConstFieldId field)
+  {
+    return *static_cast<Field_t*>(this_ptr() + schema.mem_offsets[CONST] + field.offset));
+  }
+
+  /// return a shared pointer to last committed field value
+  template <typename Field_t> const shared_ptr<Field_t> operator[](CopySwapFieldId field) const
+  {
+    return static_cast<const shared_ptr<Field_t>>(this_ptr() + schema.mem_offsets[COPYSWAP] + field.offset));
+  }
+
+  /// return a shared pointer to last committed field value
+  template <typename Field_t>
+  writer_ptr<Field_t> &&
+  writeCopy(CopySwapFieldId field)
+  {
+    unique_lock lock = copy_swap_write_locks.getMutex(this + field.offset);
+    auto data_ptr = static_cast<const shared_ptr<Field_t>>(this_ptr() + schema.mem_offsets[COPYSWAP] + field.offset));
+    return writer_ptr(data_ptr);
   }
 
   ///
@@ -191,91 +285,48 @@ temeplate<Schema &(*GetSchema)()> struct Record {
   void *
   operator new(size_t size)
   {
-    // allocate one block
-    const size_t alloc_size = size + recordSize(getSchema());
-    void *ptr               = ::operator new(alloc_size);
-
-    return ptr;
+    // allocate one block for all the memory, including the derived_t members
+    return ::operator new(schema.alloc_size);
   }
 
+  /// construct a record and fields
   Record()
   {
-    getSchema().instance_count++;
-    memset(ptr, 0, alloc_size);
+    schema.instance_count++;
+    memset(this_ptr() + mem_offset[BIT], 0, mem_size[BIT]);
 
-    for (Field &field : getSchema().fields()) {
-      field.construct(this[field.offset]);
+    for (Field &field : schema.fields()) {
+      if (field.access != BIT) {
+        field.construct_fn(this_ptr() + mem_offset[field.access] + field.offset);
+      }
     }
   }
 
-  Record(Record const &rec)
-  {
-    // all fields are trivially copyable, so no need to construct
-    memcpy(this, &rec, getSchema().recordSize());
-  }
+  /// don't allow copy construct
+  Record(Record &) = delete;
 
+  /// destruct all fields
   ~Record()
   {
-    for (Field &field : getSchema().fields()) {
-      field.destruct(this[field.offset]);
-    }
-    getSchema().instance_count--;
-  }
-
-  class Writer : public unique_ptr<self_type>
-  {
-  protected:
-    Lock_t lock;
-    const shared_ptr<self_type> current;
-    ~Writer() { lock.unlock(); }
-    void
-    free()
-    {
-      delete this;
-    }
-    bool
-    commit()
-    {
-      const shared_ptr rec(get());
-      for (Schema::IndexManager const &index_mgr : self_type::getSchema().index_managers) {
-        const void *fval_curr = current.get()<char>[index_mgr.offset];
-        const void *fval_new  = rec<char>[index_mgr.offset];
-        if (memcmp(fval_curr, fval_new, index_mgr.size) == 0)) {
-          index_mgr.db_index.put(fval_new, rec);
-        }
-        else {
-          index_mgr.db_index.replace(fval_old, fval_new, rec_new);
-        }
+    for (Field &field : schema.fields()) {
+      if (field.access != BIT) {
+        field.destruct_fn(this_ptr() + mem_offset[field.access] + field.offset);
       }
     }
-  };
-
-  Writer
-  writeLock()
-  {
-    Writer w = new Value_t(*elm);
-    w.lock   = lock;
+    schema.instance_count--;
   }
 
-  void
-  writeCommit(const Key_t &key, Writer &w)
+private:
+  char *
+  this_ptr()
   {
-    void replace(self_ptr_type const &rec_new)
-    {
-      Field_t const &fval_old = rec_old[offset];
-      Field_t const &fval_new = rec_new[offset];
-      if (fval_old == fval_new) {
-        db_index.put(rec);
-      } else {
-        db_index.replace(fval_old, fval_new, rec_new);
-      }
-    }
+    return static_cast<char *>(this);
+  }
+  char const *
+  this_ptr() const
+  {
+    return static_cast<char const *>(this);
   }
 };
 
-/// Intended to provide a thread safe lookup. Only the part of the map is locked, for the duration of the lookup.
-template <typename Key_t, class Record_t>
-struct DBIndex : private PartitionedMap<Key_t, const std::shared_ptr<Record_t>, std::mutex> {
-};
-
-#endif // _Record_h
+template <typename Derived_t> Schema Record<Derived_t>::schema;
