@@ -10,6 +10,7 @@
 
 /// copies a shared data, them overwrites the
 // TODO move this to new file.
+static LockPool copy_swap_access_locks(64);
 static LockPool copy_swap_write_locks(64);
 
 template <typename T> class writer_ptr : public unique_ptr<Value_t>
@@ -20,10 +21,12 @@ private:
 
 public:
   writer_ptr() {}
-  writer_ptr(const shared_ptr<T> &data_ptr) : swap_loc(data_ptr), unique_ptr<Value_t>(new T(*data_ptr))
+  writer_ptr(const shared_ptr<T> &data_ptr) : swap_loc(data_ptr)
   {
-    // get a lock for the memory address
+    // get a copy lock for the memory address
     write_lock = unique_lock(copy_swap_write_locks.getMutex(static_cast<size_t>(&data_ptr)));
+    // copy
+    unique_ptr<Value_t>(new T(*data_ptr));
   }
 
   void
@@ -38,6 +41,9 @@ public:
     if (!write_lock) {
       return;
     }
+
+    // get a swap lock for the pointer
+    unique_lock access_lock = unique_lock(copy_swap_access_locks.getMutex(static_cast<size_t>(&swap_loc)));
 
     // point the existing reader_ptr to the writer_ptr
     swap_loc = reinterpret_cast<unique_ptr<Value_t>>(this);
@@ -64,21 +70,22 @@ const T *c = HostRecords[host_name][const_field];
 Writer<T> d = HostRecords->writeLock(host_name);
 HostRecords->writeCommit(d);
 
-Record
-.atomic_mem = PropBlock
-.const_mem = const PropBlock
-.*cow_mem = const shared_ptr<PropBlock>
 
-
-Record::operator[](Field const &)
-
-+Add field::is_atomic to allow operator[], block get and writeLock
++Add field::is_atomic to allow get, block get and writeLock
 +when allocating non-atomic type, allocate a size of shared_ptr, Writer class will
+
 
 */
 
-template <typename Derived_t> struct Record {
-  using Record_t = Record<Derived_t>;
+/**
+ * @brief Allows code (and Plugins) to add member variables during system init.
+ *
+ * @tparam Derived_t - the class that you want to extend at runtime.
+ *
+ * This is focused on thread safe data types that allow block-free reading.
+ */
+template <typename Derived_t> struct Extendible {
+  using Extendible_t = Extendible<Derived_t>;
 
   using std;
 
@@ -87,14 +94,21 @@ template <typename Derived_t> struct Record {
   /// strongly type the FieldId to avoid branching and switching
   struct AbstractFieldId {
     uint8_t offset;
+
+    AbstractFieldId(string const &field_name)
+    {
+      auto field_iter = schema.fields.find(field_name);
+      ink_release_assert(field_iter != schema.fields.end());
+      offset = field_iter->offset.offset;
+    }
   };
-  struct AtomicFieldId : private FieldBaseId {
+  struct AtomicFieldId : FieldBaseId {
   };
-  struct BitFieldId : private FieldBaseId {
+  struct BitFieldId : FieldBaseId {
   };
-  struct ConstFieldId : private FieldBaseId {
+  struct ConstFieldId : FieldBaseId {
   };
-  struct CopySwapFieldId : private FieldBaseId {
+  struct CopySwapFieldId : FieldBaseId {
   };
 
   /// defines a runtime "member variable", element of the blob
@@ -112,8 +126,8 @@ template <typename Derived_t> struct Record {
     map<string, Field> fields;              ///< defined elements of the blob
     uint32_t mem_sizes[NUM_ACCESS_TYPES];   ///< bytes to allocate for substructures (fields)
     uint32_t mem_offsets[NUM_ACCESS_TYPES]; ///< first byte offset of that access type
-    uint32_t bit_count;
-    uint32_t alloc_size; ///< bytes to allocate Record
+    uint32_t bit_count;                     ///< total bits to be packed down
+    uint32_t alloc_size;                    ///< bytes to allocate
 
     atomic_uint instance_count; ///< the number of class instances in use.
 
@@ -163,7 +177,8 @@ template <typename Derived_t> struct Record {
       fields[field_name] = FieldSchema{offset, consturct_fn, destruct_fn, field_name};
       return offset;
     }
-
+    //////////////////
+    // API for adding fields that returns a strongly typed FieldId
   public:
     template <typename Field_t>
     AtomicFieldId
@@ -210,24 +225,31 @@ template <typename Derived_t> struct Record {
   }; // end Schema struct
 
   //////////////////////////////////////////
-  /// Record static data
+  /// Extendible static data
   static Schema schema;
 
   //////////////////////////////////////////
-  /// Record Methods
+  /// Extendible Methods
 
-  /// return a reference to an atomic field
-  template <typename Field_t> atomic<Field_t> &operator[](AtomicFieldId field)
+  /// return a reference to an atomic field (read, write or other atomic operation)
+  template <typename Field_t>
+  atomic<Field_t> &
+  get(AtomicFieldId field)
   {
     return static_cast<atomic<Field_t>>(this_ptr() + schema.mem_offsets[ATOMIC] + field.offset));
   }
 
   /// atomically read a bit value
-  template <typename Field_t> bool const operator[](BitFieldId field) const { return unpackBit(field); }
+  template <typename Field_t>
+  bool const
+  get(BitFieldId field) const
+  {
+    return readBit(field);
+  }
 
   /// atomically read a bit value
   bool const
-  unpackBit(BitFieldId field) const
+  readBit(BitFieldId field) const
   {
     const atomic_char &c  = static_cast<const atomic_char*>(this_ptr() + schema.mem_offsets[BIT] + field.offset / 8));
     const char mask       = 1 << (field.offset % 8);
@@ -236,7 +258,7 @@ template <typename Derived_t> struct Record {
 
   /// atomically write a bit value
   void
-  packBit(BitFieldId field, bool const val)
+  writeBit(BitFieldId field, bool const val)
   {
     atomic_char &c  = static_cast<const atomic_char*>(this_ptr() + schema.mem_offsets[BIT] + field.offset / 8));
     const char mask = 1 << (offset % 8);
@@ -248,7 +270,9 @@ template <typename Derived_t> struct Record {
   }
 
   /// return a reference to an const field
-  template <typename Field_t> Field_t const &operator[](ConstFieldId field) const
+  template <typename Field_t>
+  Field_t const & // value is not expected to change, or be freed while 'this' exists.
+  get(ConstFieldId field) const
   {
     return *static_cast<const Field_t*>(this_ptr() + schema.mem_offsets[CONST] + field.offset));
   }
@@ -262,17 +286,19 @@ template <typename Derived_t> struct Record {
   }
 
   /// return a shared pointer to last committed field value
-  template <typename Field_t> const shared_ptr<Field_t> operator[](CopySwapFieldId field) const
+  template <typename Field_t>
+  const shared_ptr<Field_t> // shared_ptr so the value can be updated while in use.
+  get(CopySwapFieldId field) const
   {
+    unique_lock access_lock(copy_swap_access_locks.getMutex(this + field.offset));
     return static_cast<const shared_ptr<Field_t>>(this_ptr() + schema.mem_offsets[COPYSWAP] + field.offset));
   }
 
-  /// return a shared pointer to last committed field value
+  /// return a writer created from the last committed field value
   template <typename Field_t>
   writer_ptr<Field_t> &&
-  writeCopy(CopySwapFieldId field)
+  writeCopySwap(CopySwapFieldId field)
   {
-    unique_lock lock = copy_swap_write_locks.getMutex(this + field.offset);
     auto data_ptr = static_cast<const shared_ptr<Field_t>>(this_ptr() + schema.mem_offsets[COPYSWAP] + field.offset));
     return writer_ptr(data_ptr);
   }
@@ -289,8 +315,8 @@ template <typename Derived_t> struct Record {
     return ::operator new(schema.alloc_size);
   }
 
-  /// construct a record and fields
-  Record()
+  /// construct all fields
+  Extendible()
   {
     schema.instance_count++;
     memset(this_ptr() + mem_offset[BIT], 0, mem_size[BIT]);
@@ -302,11 +328,11 @@ template <typename Derived_t> struct Record {
     }
   }
 
-  /// don't allow copy construct
-  Record(Record &) = delete;
+  /// don't allow copy construct, that doesn't allow atomicity
+  Extendible(Extendible &) = delete;
 
   /// destruct all fields
-  ~Record()
+  ~Extendible()
   {
     for (Field &field : schema.fields()) {
       if (field.access != BIT) {
@@ -329,4 +355,4 @@ private:
   }
 };
 
-template <typename Derived_t> Schema Record<Derived_t>::schema;
+template <typename Derived_t> Schema Extendible<Derived_t>::schema;
