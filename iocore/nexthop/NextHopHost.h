@@ -1,7 +1,6 @@
 #include <atomic>
-#include "I_EventSystem.h"
 #include "PartitionedMap.h"
-#include "PropertyBlock.h"
+#include "Extendible.h"
 #include "ts/string_view.h"
 
 /**
@@ -49,20 +48,22 @@ struct AddrRecord;
 class HostRecord : public Extendible<HostRecord>
 {
 public:
-  static CopySwapFieldId fld_host_name = scheme.addField<AddrList, COPYSWAP>("addr_list");
-
   // to enforce all references be shared_ptr
-  static shared_ptr<HostRecord>
+  static shared_ptr<HostRecord> &
   create(NameParam &host_name)
   {
-    shared_ptr<HostRecord> name_rec_ptr = find(host_name);
-    if (name_rec_ptr) {
-      return name_rec_ptr;
+    // do find-or-add with one access lock
+    unique_lock<mutex> lck;
+    auto part_map = map.getPartMap(host_name, lck);
+    auto elm      = part_map.find(key);
+    if (elm != part_map.end()) {
+      // return existing matching record
+      return elm->second();
     }
-
-    name_rec_ptr = new HostRecord();
-    map.put(host_name, name_rec_ptr);
-    return name_rec_ptr;
+    // allocate a new record and return it.
+    shared_ptr<HostRecord> host_rec_ptr = new HostRecord();
+    part_map[host_name]                 = host_rec_ptr;
+    return host_rec_ptr;
   }
 
   /// delete shared_ptr to data, it will safely clean up later.
@@ -78,7 +79,9 @@ public:
     return map.find(host_name);
   }
 
+  // restrict lifetime management
 private:
+  // Note, this uses Extendible::new and delete to manage allocations.
   HostRecord();
   HostRecord(HostRecord &) = delete;
   ~HostRecord() {}
@@ -94,39 +97,27 @@ private:
 class AddrRecord : public Extendible<AddrRecord>
 {
 public:
-  /// Fields - extendible members
-
-  /// add a host_name field for reverse lookups
-  // using shared pointer so you don't have to allocate a string per ip
-  static ConstFieldId fld_host_name = AddrRecord.scheme.addField<shared_ptr<string>, CONST>("host_name");
-
   static shared_ptr<AddrRecord>
-  create(AddrParam &addr, NamePtr name_ptr)
+  create(AddrParam &addr)
   {
-    ink_assert(!find(addr)); // handle existing records before calling this
-
-    auto name_rec = HostRecord::find(*name_ptr);
-    ink_assert(name_rec); // assume HostRecord exist, to force single creation code path
-    {                     // insert the addr from the HostRecord in a copy-on-write style
-      auto addr_list_writer = name_rec->writeCopySwap<AddList>("addr_list"); /// creates new instance
-      addr_list_writer->push_back(addr);
-    } // commit addr_list_writer at end of scope
-
-    auto addr_rec = new AddrRecord();
-    addr_rec[fld_host_name].init(name_ptr);
-    AddrRecords.put(addr, shared_ptr<AddrRecord>(addr_rec));
-    return addr_rec;
+    // do find-or-add with one access lock
+    unique_lock<mutex> lck;
+    auto part_map = map.getPartMap(addr, lck);
+    auto elm      = part_map.find(key);
+    if (elm != part_map.end()) {
+      // return existing matching record
+      return elm->second();
+    }
+    // allocate a new record and return it.
+    shared_ptr<AddrRecord> addr_rec_ptr = new AddrRecord();
+    part_map[addr]                      = addr_rec_ptr;
+    return addr_rec_ptr;
   }
 
   static void
   destroy(AddrParam &addr)
   {
-    { // remove the addr from the HostRecord in a copy-on-write style
-      auto addr_list_writer = NameRecords[this->host_name].writeCopySwap<AddList>("addr_list"); /// creates new addr list instance
-      addr_list_writer->remove(addr);
-    }
-
-    AddrRecords.pop(addr);
+    shared_ptr<AddrRecord> add_rec_ptr = map.pop(addr);
   }
 
   static shared_ptr<AddrRecord>
