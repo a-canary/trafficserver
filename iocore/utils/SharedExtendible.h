@@ -8,10 +8,12 @@
 
 #include "ts/ink_assert.h"
 
+using namespace std;
+
 /// copies a shared data, them overwrites the
 // TODO move this to new file.
-static LockPool copy_swap_access_locks(64);
-static LockPool copy_swap_write_locks(64);
+static LockPool<std::mutex> copy_swap_access_locks(64);
+static LockPool<std::mutex> copy_swap_write_locks(64);
 
 template <typename T> class writer_ptr : public unique_ptr<Value_t>
 {
@@ -78,24 +80,23 @@ HostRecords->writeCommit(d);
 */
 
 /**
- * @brief Allows code (and Plugins) to add member variables during system init.
+ * @brief Allows code (and Plugins) to declare member variables during system init.
  *
  * @tparam Derived_t - the class that you want to extend at runtime.
  *
- * This is focused on thread safe data types that allow block-free reading.
+ * This is focused on thread safe data types that allow minimally blocked reading.
  */
-template <typename Derived_t> struct Extendible {
-  using Extendible_t = Extendible<Derived_t>;
-
-  using std;
+template <typename Derived_t> struct SharedExtendible {
+  using SharedExtendible_t = SharedExtendible<Derived_t>;
 
   enum FieldAccessEnum { ATOMIC, BIT, CONST, COPYSWAP, NUM_ACCESS_TYPES }; ///< all types must allow unblocking MT read access
 
+  /////////////////////////////////////////////////////////////////////
   /// strongly type the FieldId to avoid branching and switching
-  struct AbstractFieldId {
+  struct BaseFieldId {
     uint8_t offset;
 
-    AbstractFieldId(string const &field_name)
+    BaseFieldId(string const &field_name)
     {
       auto field_iter = schema.fields.find(field_name);
       ink_release_assert(field_iter != schema.fields.end());
@@ -111,6 +112,7 @@ template <typename Derived_t> struct Extendible {
   struct CopySwapFieldId : FieldBaseId {
   };
 
+  /////////////////////////////////////////////////////////////////////
   /// defines a runtime "member variable", element of the blob
   struct FieldSchema {
     using Func_t = void(void *);
@@ -121,9 +123,12 @@ template <typename Derived_t> struct Extendible {
     Func_t *destruct_fn;    ///< the data type's destructor
   };
 
+  /////////////////////////////////////////////////////////////////////
   /// manages the subdata structures
-  struct Schema {
-    map<string, Field> fields;              ///< defined elements of the blob
+  class Schema
+  {
+  private:
+    map<string, FieldSchema> fields;        ///< defined elements of the blob
     uint32_t mem_sizes[NUM_ACCESS_TYPES];   ///< bytes to allocate for substructures (fields)
     uint32_t mem_offsets[NUM_ACCESS_TYPES]; ///< first byte offset of that access type
     uint32_t bit_count;                     ///< total bits to be packed down
@@ -137,10 +142,9 @@ template <typename Derived_t> struct Extendible {
       mem_sizes_atomic = mem_sizes_const = mem_sizes_copyswap = mem_sizes_bits = sizeof(Derived_t);
     }
 
-  private:
     /// Add a new Field to this record type
     template <FieldAccessEnum Access_t, typename Field_t>
-    FieldBaseId
+    BaseFieldId
     addField(const string &field_name)
     {
       static_assert(Access_t == BIT || is_same<Field_t, bool>::value == false,
@@ -150,7 +154,7 @@ template <typename Derived_t> struct Extendible {
 
       ink_assert_release(instance_count == 0); // it's too late, we already started allocating.
 
-      AbstractFieldId field_id;
+      BaseFieldId field_id;
       if (Access_t == BIT) {
         field_id.offset = bit_count;          // get bit offset.
         ++bit_count;                          // inc bit offset
@@ -225,11 +229,12 @@ template <typename Derived_t> struct Extendible {
   }; // end Schema struct
 
   //////////////////////////////////////////
-  /// Extendible static data
+  // SharedExtendible static data
+  /// one schema instance per Derived_t to define contained fields
   static Schema schema;
 
   //////////////////////////////////////////
-  /// Extendible Methods
+  /// SharedExtendible Methods
 
   /// return a reference to an atomic field (read, write or other atomic operation)
   template <typename Field_t>
@@ -316,7 +321,7 @@ template <typename Derived_t> struct Extendible {
   }
 
   /// construct all fields
-  Extendible()
+  SharedExtendible()
   {
     schema.instance_count++;
     memset(this_ptr() + mem_offset[BIT], 0, mem_size[BIT]);
@@ -329,10 +334,10 @@ template <typename Derived_t> struct Extendible {
   }
 
   /// don't allow copy construct, that doesn't allow atomicity
-  Extendible(Extendible &) = delete;
+  SharedExtendible(SharedExtendible &) = delete;
 
   /// destruct all fields
-  ~Extendible()
+  ~SharedExtendible()
   {
     for (Field &field : schema.fields()) {
       if (field.access != BIT) {
@@ -355,4 +360,4 @@ private:
   }
 };
 
-template <typename Derived_t> Schema Extendible<Derived_t>::schema;
+template <typename Derived_t> Schema SharedExtendible<Derived_t>::schema;

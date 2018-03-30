@@ -66,10 +66,10 @@ private:
 /// Intended to provide a thread safe lookup.
 // Only the part of the map is locked, for the duration of the lookup.
 // The locks really only protect against rehashing the map
-template <typename Key_t, typename Value_t, typename Mutex_t> struct PartitionedMap {
+template <typename Key_t, typename Value_t> struct PartitionedMap {
 private:
   using Map_t  = std::unordered_map<size_t, Value_t>;
-  using Lock_t = unique_lock<Mutex_t>;
+  using Lock_t = unique_lock<std::mutex>;
 
 public:
   PartitionedMap(size_t num_partitions) : part_maps(num_partitions), part_access(num_partitions) {}
@@ -165,8 +165,26 @@ public:
 
 private:
   vector<Map_t> part_maps;
-  LockPool<Mutex_t> part_access;
+  LockPool<std::mutex> part_access;
 };
+
+template <typename Key_t, typename Value_t> struct SharedMap : public PartitionedMap<Key_t, shared_ptr<Value_t>, std::mutex> {
+  /// return true if it found existing value
+  /// return false if allocated new value
+  bool
+  find_or_alloc(Key_t const &key, shared_ptr<Value_t> &val_ptr)
+  {
+    auto map = getPartMap(key);
+    auto elm = map.find(key);
+    if (elm != map.end()) {
+      val_ptr = elm->second();
+      return true;
+    }
+    val_ptr = new Value_t{};
+    return false;
+  }
+};
+
 /// If you are keying on a custom class, you will need to define std::hash<Key>()
 // this macro makes it easy.
 #define std_hasher_macro(T, var, hash_var_expr) \

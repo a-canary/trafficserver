@@ -1,6 +1,6 @@
 #include <atomic>
 #include "PartitionedMap.h"
-#include "Extendible.h"
+#include "SharedExtendible.h"
 #include "ts/string_view.h"
 
 /**
@@ -23,101 +23,89 @@
  */
 
 // Define a std::hash<>() for the key types
-std_hasher_macro(IpEndpoint, ip, ats_ip_port_hash(ip));
+std_hasher_macro(IpAddr const, ip, ip.hash());
 
 namespace NextHop
 {
 /// API
-using NameParam = ts::string_view const;
-using AddrParam = IpEndpoint const;
-
-/// Internal references
-using NamePtr  = const shared_ptr<string>;
-using AddrList = vector<const IpEndpoint>;
-
-struct HostRecord;
-struct AddrRecord;
+using HostParam = ts::string_view const; ///< the FQDN of a host
+using AddrParam = IpAdder const;         ///< an Ip address of a host (1 of many)
 
 //////////////////////////////////////////////
 
 /// Allows code to allocate and access data per Host. Built-in thread safety.
 /**
  * @see PartitionMap allows multithread access to data.
- * @see Extendible provides interface for threadsafe reading and writing
+ * @see SharedExtendible provides interface for threadsafe reading and writing
  */
-class HostRecord : public Extendible<HostRecord>
+class HostRecord : public SharedExtendible<HostRecord>
 {
 public:
-  // to enforce all references be shared_ptr
-  static shared_ptr<HostRecord> &
-  create(NameParam &host_name)
+  /**
+   * @brief find-or-add record with one access lock
+   *
+   * @param host_name: the FQDN of the host
+   * @param host_rec_ptr = the record with that name (existing or new)
+   * @return true: host_rec_ptr existed
+   * @return false: host_rec_ptr is new
+   */
+  static bool
+  find_or_alloc(HostParam &host_name, shared_ptr<HostRecord> &host_rec_ptr)
   {
-    // do find-or-add with one access lock
-    unique_lock<mutex> lck;
-    auto part_map = map.getPartMap(host_name, lck);
-    auto elm      = part_map.find(key);
-    if (elm != part_map.end()) {
-      // return existing matching record
-      return elm->second();
-    }
-    // allocate a new record and return it.
-    shared_ptr<HostRecord> host_rec_ptr = new HostRecord();
-    part_map[host_name]                 = host_rec_ptr;
-    return host_rec_ptr;
+    return map.find_or_alloc(host_name, host_rec_ptr);
   }
 
-  /// delete shared_ptr to data, it will safely clean up later.
-  void
-  destroy(NameParam &host_name)
+  /// delete shared_ptr to record.
+  static shared_ptr<HostRecord> &&
+  destroy(HostParam &host_name)
   {
     map.pop(host_name);
   }
 
+  /// get shared_ptr to record
   static shared_ptr<HostRecord>
-  find(NameParam &host_name)
+  find(HostParam &host_name)
   {
     return map.find(host_name);
   }
 
   // restrict lifetime management
 private:
-  // Note, this uses Extendible::new and delete to manage allocations.
+  // Note, this uses SharedExtendible::new and delete to manage allocations.
   HostRecord();
   HostRecord(HostRecord &) = delete;
   ~HostRecord() {}
 
-  static PartitionedMap<string, shared_ptr<HostRecord>, std::mutex> map;
+  static SharedMap<string, HostRecord> map;
 };
 
 /// Allows code to allocate and access data per Host IpAddr. Built-in thread safety.
 /**
  * @see PartitionMap allows multithread access to data.
- * @see Extendible provides interface for threadsafe reading and writing
+ * @see SharedExtendible provides interface for threadsafe reading and writing
+ * Extend by calling AddRecord::schema.addField<T>()
  */
-class AddrRecord : public Extendible<AddrRecord>
+class AddrRecord : public SharedExtendible<AddrRecord>
 {
 public:
-  static shared_ptr<AddrRecord>
-  create(AddrParam &addr)
+  /**
+   * @brief find-or-add record with one access lock
+   *
+   * @param addr: the IP:port of the host
+   * @param addr_rec_ptr = the record with that addr (existing or new)
+   * @return true: addr_rec_ptr existed
+   * @return false: addr_rec_ptr is new
+   */
+  static bool
+  create(AddrParam &addr, shared_ptr<AddrRecord> &addr_rec_ptr)
   {
-    // do find-or-add with one access lock
-    unique_lock<mutex> lck;
-    auto part_map = map.getPartMap(addr, lck);
-    auto elm      = part_map.find(key);
-    if (elm != part_map.end()) {
-      // return existing matching record
-      return elm->second();
-    }
-    // allocate a new record and return it.
-    shared_ptr<AddrRecord> addr_rec_ptr = new AddrRecord();
-    part_map[addr]                      = addr_rec_ptr;
-    return addr_rec_ptr;
+    return map.find_or_alloc(addr, addr_rec_ptr);
   }
 
-  static void
+  static shared_ptr<HostRecord> &&
   destroy(AddrParam &addr)
   {
-    shared_ptr<AddrRecord> add_rec_ptr = map.pop(addr);
+    return map.pop(addr);
   }
 
   static shared_ptr<AddrRecord>
@@ -128,13 +116,13 @@ public:
 
   // restrict lifetime management
 private:
-  // Note, this uses Extendible::new and delete to manage allocations.
+  // Note, this uses SharedExtendible::new and delete to manage allocations.
   AddrRecord();
   AddrRecord(AddrRecord &) = delete;
   ~AddrRecord();
 
   // thread safe map: addr -> addr_rec
-  static PartitionedMap<AddrParam, shared_ptr<AddrRecord>, std::mutex> map;
+  static SharedMap<AddrParam, AddrRecord> map;
   //^ we use shared_ptr here to prevent delete while in use.
 };
 
