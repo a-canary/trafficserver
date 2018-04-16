@@ -24,4 +24,4 @@
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
-#include "test_Record.cc"
+#include "test_SharedExtendible.cc"

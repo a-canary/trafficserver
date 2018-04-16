@@ -24,6 +24,7 @@
 #include <vector>
 
 using namespace std;
+using namespace NextHop;
 
 // ======= test for string_view ========
 // test cases:
@@ -31,12 +32,11 @@ using namespace std;
 
 TEST_CASE("NextHop Host constructor", "[NextHop] [Host] [constructor]")
 {
-  SECTION("Literal look for NULL")
+  HostRecord::BitFieldId bit_a, bit_b;
+  SECTION("Declare fields")
   {
-    ts::string_view sv("hello");
-    REQUIRE(sv.size() == 5);
-    REQUIRE(sv.length() == 5);
-    REQUIRE(sv.empty() == false);
-    REQUIRE(sv == "hello");
+    REQUIRE(HostRecord::schema.addField(bit_a, "bit_a"));
+    REQUIRE(HostRecord::schema.addField(bit_b, "bit_b"));
   }
+  SECTION("Literal look for NULL") {}
 }

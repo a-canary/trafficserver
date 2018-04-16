@@ -3,32 +3,36 @@
 #include <cstddef>
 #include <atomic>
 #include <cstring>
-#include <vector>
+#include <unordered_map>
 #include <type_traits>
+#include <mutex>
 
 #include "ts/ink_assert.h"
+#include "SharedAccess.h"
 
 using namespace std;
 
 /// copies a shared data, them overwrites the
 // TODO move this to new file.
-static LockPool<std::mutex> copy_swap_access_locks(64);
-static LockPool<std::mutex> copy_swap_write_locks(64);
+using WriterMutex_t = std::mutex;
+using WriterLock_t  = unique_lock<WriterMutex_t>;
+static LockPool<WriterMutex_t> copy_swap_access_locks(64);
+static LockPool<WriterMutex_t> copy_swap_write_locks(64);
 
-template <typename T> class writer_ptr : public unique_ptr<Value_t>
+template <typename T> class writer_ptr : public unique_ptr<T>
 {
 private:
-  unique_lock write_lock;        // block other writers
+  WriterLock_t write_lock;       // block other writers
   const shared_ptr<T> &swap_loc; // update this pointer when done
 
 public:
   writer_ptr() {}
   writer_ptr(const shared_ptr<T> &data_ptr) : swap_loc(data_ptr)
   {
-    // get a copy lock for the memory address
-    write_lock = unique_lock(copy_swap_write_locks.getMutex(static_cast<size_t>(&data_ptr)));
-    // copy
-    unique_ptr<Value_t>(new T(*data_ptr));
+    // get write access to the memory address
+    write_lock = WriterLock_t(copy_swap_write_locks.getMutex(static_cast<size_t>(&data_ptr)));
+    // copy the data
+    this = unique_ptr<T>{new T(*data_ptr)};
   }
 
   void
@@ -45,10 +49,10 @@ public:
     }
 
     // get a swap lock for the pointer
-    unique_lock access_lock = unique_lock(copy_swap_access_locks.getMutex(static_cast<size_t>(&swap_loc)));
+    WriterLock_t access_lock = WriterLock_t(copy_swap_access_locks.getMutex(static_cast<size_t>(&swap_loc)));
 
     // point the existing reader_ptr to the writer_ptr
-    swap_loc = reinterpret_cast<unique_ptr<Value_t>>(this);
+    swap_loc = reinterpret_cast<unique_ptr<T>>(this);
   }
 };
 
@@ -95,22 +99,24 @@ template <typename Derived_t> struct SharedExtendible {
   /// strongly type the FieldId to avoid branching and switching
   struct BaseFieldId {
     uint8_t offset;
+    static const int INVALID = 255;
+    BaseFieldId(uint8_t _offset) : offset(_offset) {}
 
-    BaseFieldId(string const &field_name)
+    static BaseFieldId
+    find(string const &field_name)
     {
       auto field_iter = schema.fields.find(field_name);
       ink_release_assert(field_iter != schema.fields.end());
-      offset = field_iter->offset.offset;
+      return field_iter->offset.offset;
     }
   };
-  struct AtomicFieldId : FieldBaseId {
+
+  template <FieldAccessEnum FieldAccess_e, typename Field_t> struct FieldId : private BaseFieldId {
+    FieldId() : BaseFieldId(BaseFieldId::INVALID) {}
+    FieldId(BaseFieldId const &id) : BaseFieldId(id.offset) {}
+    friend SharedExtendible_t;
   };
-  struct BitFieldId : FieldBaseId {
-  };
-  struct ConstFieldId : FieldBaseId {
-  };
-  struct CopySwapFieldId : FieldBaseId {
-  };
+  using BitFieldId = FieldId<BIT, bool>;
 
   /////////////////////////////////////////////////////////////////////
   /// defines a runtime "member variable", element of the blob
@@ -118,7 +124,7 @@ template <typename Derived_t> struct SharedExtendible {
     using Func_t = void(void *);
 
     FieldAccessEnum access; ///< which API is used to access the data
-    FieldBaseId offset;     ///< pointer to the memory
+    uint8_t offset;         ///< pointer to the memory used for BaseFieldId
     Func_t *construct_fn;   ///< the data type's constructor
     Func_t *destruct_fn;    ///< the data type's destructor
   };
@@ -127,89 +133,68 @@ template <typename Derived_t> struct SharedExtendible {
   /// manages the subdata structures
   class Schema
   {
+    friend SharedExtendible_t;
+
   private:
-    map<string, FieldSchema> fields;        ///< defined elements of the blob
-    uint32_t mem_sizes[NUM_ACCESS_TYPES];   ///< bytes to allocate for substructures (fields)
-    uint32_t mem_offsets[NUM_ACCESS_TYPES]; ///< first byte offset of that access type
-    uint32_t bit_count;                     ///< total bits to be packed down
-    uint32_t alloc_size;                    ///< bytes to allocate
+    unordered_map<string, FieldSchema> fields;        ///< defined elements of the blob
+    unordered_map<uint32_t, uint32_t> mem_size_count; ///< bytes to allocate for substructures (fields)
+    unordered_map<uint32_t, uint32_t> mem_offsets;    ///< bytes to allocate for substructures (fields)
+    uint32_t bit_count;                               ///< total bits to be packed down
+    uint32_t alloc_size;                              ///< bytes to allocate
 
     atomic_uint instance_count; ///< the number of class instances in use.
 
+  public:
     /// Constructor
-    Schema() : num_packed_bits(0), alloc_size(0), instance_count(0)
-    {
-      mem_sizes_atomic = mem_sizes_const = mem_sizes_copyswap = mem_sizes_bits = sizeof(Derived_t);
-    }
+    Schema() : bit_count(0), alloc_size(sizeof(Derived_t)), instance_count(0) {}
 
     /// Add a new Field to this record type
     template <FieldAccessEnum Access_t, typename Field_t>
-    BaseFieldId
-    addField(const string &field_name)
+    bool
+    addField(FieldId<Access_t, Field_t> &field_id, const string &field_name)
     {
       static_assert(Access_t == BIT || is_same<Field_t, bool>::value == false,
                     "Use BitField so we can pack bits, they are still atomic.");
       static_assert(Access_t != COPYSWAP || is_copy_constructible<Field_t>::value == true,
                     "can't use copyswap with a copy constructor.");
 
-      ink_assert_release(instance_count == 0); // it's too late, we already started allocating.
+      ink_release_assert(instance_count == 0); // it's too late, we already started allocating.
 
-      BaseFieldId field_id;
       if (Access_t == BIT) {
-        field_id.offset = bit_count;          // get bit offset.
-        ++bit_count;                          // inc bit offset
-        mem_sizes[BIT] = (bit_count + 7) / 8; // round up to bytes
+        field_id.offset = bit_count;             // get bit offset.
+        ++bit_count;                             // inc bit offset
+        mem_size_count[0] = (bit_count + 7) / 8; // round up to bytes
+      }
+      if (Access_t == ATOMIC) {
+        size_t size     = max(sizeof(atomic<Field_t>), alignof(atomic<Field_t>));
+        field_id.offset = size * mem_size_count[size]++; // get memory offset.
+                                                         // and increase memory counter
       } else {
-        field_id.offset = mem_sizes[Access_t];  // get memory offset.
-        mem_sizes[Access_t] += sizeof(Field_t); // increase memory counter
+        field_id.offset = sizeof(Field_t) * mem_size_count[sizeof(Field_t)]++; // get memory offset.
+                                                                               // and increase memory counter
       }
 
       // update mem offsets
       {
-        uint32_t mem_offset = sizeof(Derived_t);
-        for (int e = 0; e < NUM_ACCESS_TYPES; e++) {
-          mem_offsets[e] = mem_offset;
-          mem_offset += mem_size[e];
+        for (auto elm1 : mem_size_count) {
+          uint32_t &mem_offset = mem_offsets[elm1.first];
+          mem_offset           = sizeof(Derived_t) + sizeof(Derived_t) % 8;
+          for (auto elm2 : mem_size_count) {
+            if (elm1.first < elm2.first) {
+              mem_offset += elm2.first * elm2.second; // shift by size and count
+            }
+          }
         }
-        alloc_size = mem_offset;
+
+        alloc_size = mem_offsets[0] + mem_size_count[0];
       }
 
       // capture the default constructors of the data type
       static auto consturct_fn = [](void *ptr) { new (ptr) Field_t; };
       static auto destruct_fn  = [](void *ptr) { static_cast<Field_t *>(ptr)->~Field_t(); };
 
-      fields[field_name] = FieldSchema{offset, consturct_fn, destruct_fn, field_name};
-      return offset;
-    }
-    //////////////////
-    // API for adding fields that returns a strongly typed FieldId
-  public:
-    template <typename Field_t>
-    AtomicFieldId
-    addAtomicField(const string &field_name)
-    {
-      return addField<ATOMIC, atomic<Field_t>>(field_name);
-    }
-
-    template <typename Field_t>
-    BitFieldId
-    addBitField(const string &field_name)
-    {
-      return addField<BIT, Field_t>(field_name);
-    }
-
-    template <typename Field_t>
-    ConstFieldId
-    addConstField(const string &field_name)
-    {
-      return addField<CONST, Field_t>(field_name);
-    }
-
-    template <typename Field_t>
-    CopySwapFieldId
-    addCopySwapField(const string &field_name)
-    {
-      return addField<COPYSWAP, const shared_ptr<Field_t>>(field_name);
+      fields[field_name] = FieldSchema{Access_t, field_id.offset, consturct_fn, destruct_fn};
+      return true;
     }
 
     bool
@@ -219,12 +204,38 @@ template <typename Derived_t> struct SharedExtendible {
         // free instances before calling this so we don't leak memory
         return false;
       }
-      for (auto &mem_size : mem_sizes) {
-        mem_size = 0;
-      }
-      bit_count = 0;
+      mem_size_count.clear();
+      mem_offsets.clear();
       fields.clear();
+      bit_count  = 0;
+      alloc_size = 0;
       return true;
+    }
+
+    void
+    call_construct(char *ext_as_char_ptr)
+    {
+      instance_count++;
+      memset(ext_as_char_ptr + mem_offsets[0], 0, mem_size_count[0]);
+
+      for (auto const &elm : fields) {
+        FieldSchema const &field_schema = elm.second;
+        if (field_schema.access != BIT) {
+          field_schema.construct_fn(ext_as_char_ptr + mem_offsets[field_schema.access] + field_schema.offset);
+        }
+      }
+    }
+
+    void
+    call_destruct(char *ext_as_char_ptr)
+    {
+      for (auto const &elm : fields) {
+        FieldSchema const &field_schema = elm.second;
+        if (field_schema.access != BIT) {
+          field_schema.destruct_fn(ext_as_char_ptr + mem_offsets[field_schema.access] + field_schema.offset);
+        }
+      }
+      instance_count--;
     }
   }; // end Schema struct
 
@@ -239,13 +250,12 @@ template <typename Derived_t> struct SharedExtendible {
   /// return a reference to an atomic field (read, write or other atomic operation)
   template <typename Field_t>
   atomic<Field_t> &
-  get(AtomicFieldId field)
+  get(FieldId<ATOMIC, Field_t> const &field)
   {
-    return static_cast<atomic<Field_t>>(this_ptr() + schema.mem_offsets[ATOMIC] + field.offset));
+    return new (this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset) atomic<Field_t>;
   }
 
   /// atomically read a bit value
-  template <typename Field_t>
   bool const
   get(BitFieldId field) const
   {
@@ -256,56 +266,56 @@ template <typename Derived_t> struct SharedExtendible {
   bool const
   readBit(BitFieldId field) const
   {
-    const atomic_char &c  = static_cast<const atomic_char*>(this_ptr() + schema.mem_offsets[BIT] + field.offset / 8));
-    const char mask       = 1 << (field.offset % 8);
-    return (c.load() & mask) != 0;
+    const char &c   = *(this_as_char_ptr() + schema.mem_offsets[0] + field.offset / 8);
+    const char mask = 1 << (field.offset % 8);
+    return (c & mask) != 0;
   }
 
   /// atomically write a bit value
   void
   writeBit(BitFieldId field, bool const val)
   {
-    atomic_char &c  = static_cast<const atomic_char*>(this_ptr() + schema.mem_offsets[BIT] + field.offset / 8));
-    const char mask = 1 << (offset % 8);
+    char &c         = *(this_as_char_ptr() + schema.mem_offsets[0] + field.offset / 8);
+    const char mask = 1 << (field.offset % 8);
     if (val) {
-      c.fetch_or(mask);
+      c |= mask;
     } else {
-      c.fetch_and(~mask);
+      c &= ~mask;
     }
   }
 
   /// return a reference to an const field
   template <typename Field_t>
   Field_t const & // value is not expected to change, or be freed while 'this' exists.
-  get(ConstFieldId field) const
+  get(FieldId<CONST, Field_t> field) const
   {
-    return *static_cast<const Field_t*>(this_ptr() + schema.mem_offsets[CONST] + field.offset));
+    return *static_cast<const Field_t *>(this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset);
   }
 
   /// return a reference to an const field that is non-const for initialization purposes
   template <typename Field_t>
   Field_t &
-  init(ConstFieldId field)
+  init(FieldId<CONST, Field_t> field)
   {
-    return *static_cast<Field_t*>(this_ptr() + schema.mem_offsets[CONST] + field.offset));
+    return *static_cast<Field_t *>(this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset);
   }
 
   /// return a shared pointer to last committed field value
   template <typename Field_t>
   const shared_ptr<Field_t> // shared_ptr so the value can be updated while in use.
-  get(CopySwapFieldId field) const
+  get(FieldId<COPYSWAP, Field_t> field) const
   {
-    unique_lock access_lock(copy_swap_access_locks.getMutex(this + field.offset));
-    return static_cast<const shared_ptr<Field_t>>(this_ptr() + schema.mem_offsets[COPYSWAP] + field.offset));
+    WriterLock_t access_lock(copy_swap_access_locks.getMutex(this + field.offset));
+    return static_cast<const shared_ptr<Field_t>>(this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset);
   }
 
   /// return a writer created from the last committed field value
   template <typename Field_t>
   writer_ptr<Field_t> &&
-  writeCopySwap(CopySwapFieldId field)
+  writeCopySwap(FieldId<COPYSWAP, Field_t> field)
   {
-    auto data_ptr = static_cast<const shared_ptr<Field_t>>(this_ptr() + schema.mem_offsets[COPYSWAP] + field.offset));
-    return writer_ptr(data_ptr);
+    auto data_ptr = static_cast<const shared_ptr<Field_t>>(this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset);
+    return writer_ptr<Field_t>(data_ptr);
   }
 
   ///
@@ -321,43 +331,25 @@ template <typename Derived_t> struct SharedExtendible {
   }
 
   /// construct all fields
-  SharedExtendible()
-  {
-    schema.instance_count++;
-    memset(this_ptr() + mem_offset[BIT], 0, mem_size[BIT]);
-
-    for (Field &field : schema.fields()) {
-      if (field.access != BIT) {
-        field.construct_fn(this_ptr() + mem_offset[field.access] + field.offset);
-      }
-    }
-  }
+  SharedExtendible() { schema.call_construct(this_as_char_ptr()); }
 
   /// don't allow copy construct, that doesn't allow atomicity
   SharedExtendible(SharedExtendible &) = delete;
 
   /// destruct all fields
-  ~SharedExtendible()
-  {
-    for (Field &field : schema.fields()) {
-      if (field.access != BIT) {
-        field.destruct_fn(this_ptr() + mem_offset[field.access] + field.offset);
-      }
-    }
-    schema.instance_count--;
-  }
+  ~SharedExtendible() { schema.call_destruct(this_as_char_ptr()); }
 
 private:
   char *
-  this_ptr()
+  this_as_char_ptr()
   {
-    return static_cast<char *>(this);
+    return static_cast<char *>(static_cast<void *>(this));
   }
   char const *
-  this_ptr() const
+  this_as_char_ptr() const
   {
-    return static_cast<char const *>(this);
+    return static_cast<const char *>(static_cast<const void *>(this));
   }
 };
 
-template <typename Derived_t> Schema SharedExtendible<Derived_t>::schema;
+template <typename Derived_t> typename SharedExtendible<Derived_t>::Schema SharedExtendible<Derived_t>::schema;

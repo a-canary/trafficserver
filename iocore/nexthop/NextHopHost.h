@@ -1,7 +1,8 @@
 #include <atomic>
-#include "PartitionedMap.h"
+#include "SharedMap.h"
 #include "SharedExtendible.h"
 #include "ts/string_view.h"
+#include "ts/ink_inet.h"
 
 /**
  * @file
@@ -23,13 +24,14 @@
  */
 
 // Define a std::hash<>() for the key types
-std_hasher_macro(IpAddr const, ip, ip.hash());
+std_hasher_macro(IpAddr, ip, ip.hash());
 
 namespace NextHop
 {
+using namespace std;
 /// API
-using HostParam = ts::string_view const; ///< the FQDN of a host
-using AddrParam = IpAdder const;         ///< an Ip address of a host (1 of many)
+using HostParam = const string; ///< the FQDN of a host
+using AddrParam = const IpAddr; ///< an Ip address of a host (1 of many)
 
 //////////////////////////////////////////////
 
@@ -52,31 +54,30 @@ public:
   static bool
   find_or_alloc(HostParam &host_name, shared_ptr<HostRecord> &host_rec_ptr)
   {
-    return map.find_or_alloc(host_name, host_rec_ptr);
+    return map.find_or_alloc({host_name, Hash32fnv(host_name)}, host_rec_ptr);
   }
 
   /// delete shared_ptr to record.
-  static shared_ptr<HostRecord> &&
+  static shared_ptr<HostRecord>
   destroy(HostParam &host_name)
   {
-    map.pop(host_name);
+    return map.pop({host_name, Hash32fnv(host_name)});
   }
 
   /// get shared_ptr to record
   static shared_ptr<HostRecord>
   find(HostParam &host_name)
   {
-    return map.find(host_name);
+    return map.find({host_name, Hash32fnv(host_name)});
   }
-
   // restrict lifetime management
-private:
+protected:
   // Note, this uses SharedExtendible::new and delete to manage allocations.
   HostRecord();
   HostRecord(HostRecord &) = delete;
-  ~HostRecord() {}
 
-  static SharedMap<string, HostRecord> map;
+  static SharedMap<KeyHashed<HostParam>, HostRecord> map;
+  friend SharedMap<KeyHashed<HostParam>, HostRecord>; // allow the map to allocate
 };
 
 /// Allows code to allocate and access data per Host IpAddr. Built-in thread safety.
@@ -99,31 +100,30 @@ public:
   static bool
   create(AddrParam &addr, shared_ptr<AddrRecord> &addr_rec_ptr)
   {
-    return map.find_or_alloc(addr, addr_rec_ptr);
+    return map.find_or_alloc({addr, addr.hash()}, addr_rec_ptr);
   }
 
-  static shared_ptr<HostRecord> &&
+  static shared_ptr<AddrRecord>
   destroy(AddrParam &addr)
   {
-    return map.pop(addr);
+    return map.pop({addr, addr.hash()});
   }
 
   static shared_ptr<AddrRecord>
   find(AddrParam &addr)
   {
-    return map.find(addr);
+    return map.find({addr, addr.hash()});
   }
 
   // restrict lifetime management
-private:
+protected:
   // Note, this uses SharedExtendible::new and delete to manage allocations.
   AddrRecord();
   AddrRecord(AddrRecord &) = delete;
-  ~AddrRecord();
 
   // thread safe map: addr -> addr_rec
-  static SharedMap<AddrParam, AddrRecord> map;
-  //^ we use shared_ptr here to prevent delete while in use.
+  static SharedMap<KeyHashed<AddrParam>, AddrRecord> map;
+  friend SharedMap<KeyHashed<AddrParam>, AddrRecord>; // allow the map to allocate
 };
 
 }; // namespace NextHop

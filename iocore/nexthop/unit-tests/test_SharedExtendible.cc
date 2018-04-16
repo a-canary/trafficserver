@@ -18,38 +18,27 @@
 
 #include "catch.hpp"
 
-#include "PropertyBlock.h"
+#include "SharedExtendible.h"
 #include <iostream>
 #include <string>
 #include <vector>
 
 using namespace std;
 
-// ======= test for PropBlock ========
-struct Derived : PropertyBlock<Derived> {
+// ======= test for SharedExtendible ========
+struct Derived : SharedExtendible<Derived> {
+  using Base_t = SharedExtendible<Derived>;
   string m_str;
-
-  Derived() { propBlockInit(); }
-  static bool
-  hasReadAccess(const Derived *)
-  {
-    return true;
-  }
-  static bool
-  hasWriteAccess(const Derived *)
-  {
-    return true;
-  }
 };
 
-struct testProperty {
+struct testField {
   int arr[5];
   static int alive;
   static void
   init(Derived *, void *ptr)
   {
-    testProperty &tp = *static_cast<testProperty *>(ptr);
-    int x            = 1;
+    testField &tp = *static_cast<testField *>(ptr);
+    int x         = 1;
     for (int &a : tp.arr) {
       a = x;
       x *= 2;
@@ -59,47 +48,53 @@ struct testProperty {
   static void
   destroy(Derived *, void *ptr)
   {
-    testProperty &tp = *static_cast<testProperty *>(ptr);
+    testField &tp = *static_cast<testField *>(ptr);
     for (int &a : tp.arr) {
       a = 0;
     }
     alive--;
   }
 };
-int testProperty::alive = 0;
+int testField::alive = 0;
 
-size_t a, b, c, d;
+typename Derived::Base_t::BitFieldId bit_a, bit_b, bit_c;
 Derived *ptr;
 
 // test cases:
 //[constructor] [operator] [type] [access] [capacity] [modifier] [operation] [compare] [find]
 // I don't use SECTIONS because this modifies static variables many times, is not thread safe.
-TEST_CASE("PropBlock Tests", "[constructor] [access] [modifier]")
+TEST_CASE("SharedExtendible()", "[constructor]")
 {
   ptr = new Derived();
   REQUIRE(ptr != nullptr);
-  delete ptr;
-
-  ptr = new Derived();
-  REQUIRE(Derived::resetSchema() == false);
-  delete ptr;
-  REQUIRE(Derived::resetSchema() == true);
-
-  // Bit Init
-  a   = Derived::PropBlockDeclareBit(9);
-  ptr = new Derived();
-  REQUIRE(ptr != nullptr);
-  REQUIRE(ptr->propGetBit(a) == false);
-  CHECK(ptr->propGetBit(a + 1) == false);
-  CHECK(ptr->propGetBit(a + 2) == false);
-  CHECK(ptr->propGetBit(a + 3) == false);
-  CHECK(ptr->propGetBit(a + 4) == false);
-  CHECK(ptr->propGetBit(a + 5) == false);
-  CHECK(ptr->propGetBit(a + 6) == false);
-  CHECK(ptr->propGetBit(a + 7) == false);
-  CHECK(ptr->propGetBit(a + 8) == false);
 }
 
+TEST_CASE("~SharedExtendible", "[destructor]")
+{
+  delete ptr;
+}
+
+TEST_CASE("SharedExtendible Schema Reset", "[constructor] [destructor] ")
+{
+  ptr = new Derived();
+  REQUIRE(Derived::schema.reset() == false);
+  delete ptr;
+  REQUIRE(Derived::schema.reset() == true);
+}
+
+TEST_CASE("SharedExtendible addBit", "")
+{
+  CHECK(Derived::schema.addField(bit_a, "bit_a"));
+}
+
+TEST_CASE("SharedExtendible Test bit", "[constructor] [destructor] ")
+{
+  ptr = new Derived();
+  ptr->writeBit(bit_a, 1);
+  CHECK(ptr->readBit(bit_a) == 1);
+  CHECK(0);
+}
+/*
 TEST_CASE("PropBlock Tests 2", "[constructor] [access] [modifier]")
 {
   delete ptr;
@@ -161,18 +156,18 @@ TEST_CASE("PropBlock destruct string", "")
 
 TEST_CASE("PropBlock struct declare", "[constructor] [access] [modifier]")
 {
-  a = Derived::PropBlockDeclare<testProperty>(1);
+  a = Derived::PropBlockDeclare<testField>(1);
   REQUIRE(Derived::resetSchema() == true);
 }
 
 TEST_CASE("PropBlock struct construct noop", "[constructor] [access] [modifier]")
 {
-  a = Derived::PropBlockDeclare<testProperty>(3, nullptr, nullptr);
+  a = Derived::PropBlockDeclare<testField>(3, nullptr, nullptr);
   CHECK(a == sizeof(Derived));
   ptr        = new Derived();
   ptr->m_str = "Hello";
   {
-    const testProperty &dv = ptr->propRead<testProperty>(a);
+    const testField &dv = ptr->propRead<testField>(a);
     CHECK(dv.arr[0] == 0);
     CHECK(dv.arr[1] == 0);
     CHECK(dv.arr[2] == 0);
@@ -189,12 +184,12 @@ TEST_CASE("PropBlock struct destruct noop", "")
 
 TEST_CASE("PropBlock struct construct default", "[constructor] [access] [modifier]")
 {
-  a = Derived::PropBlockDeclare<testProperty>(3);
+  a = Derived::PropBlockDeclare<testField>(3);
   CHECK(a == sizeof(Derived));
   ptr        = new Derived();
   ptr->m_str = "Hello";
   {
-    const testProperty &dv = ptr->propRead<testProperty>(a);
+    const testField &dv = ptr->propRead<testField>(a);
     CHECK(dv.arr[0] == 0);
     CHECK(dv.arr[1] == 0);
     CHECK(dv.arr[2] == 0);
@@ -211,17 +206,17 @@ TEST_CASE("PropBlock struct destruct default", "")
 
 TEST_CASE("PropBlock struct declare custom", "[constructor] [access] [modifier]")
 {
-  a = Derived::PropBlockDeclare<testProperty>(3, testProperty::init, testProperty::destroy);
+  a = Derived::PropBlockDeclare<testField>(3, testField::init, testField::destroy);
   CHECK(a == sizeof(Derived));
 }
 
 TEST_CASE("PropBlock struct construct custom", "[constructor] [access] [modifier]")
 {
   ptr = new Derived();
-  CHECK(testProperty::alive == 3);
+  CHECK(testField::alive == 3);
   ptr->m_str = "Hello";
   {
-    const testProperty &dv = ptr->propRead<testProperty>(a);
+    const testField &dv = ptr->propRead<testField>(a);
     CHECK(dv.arr[0] == 1);
     CHECK(dv.arr[1] == 2);
     CHECK(dv.arr[2] == 4);
@@ -233,7 +228,7 @@ TEST_CASE("PropBlock struct construct custom", "[constructor] [access] [modifier
 TEST_CASE("PropBlock struct destruct custom", "")
 {
   delete ptr;
-  CHECK(testProperty::alive == 0);
+  CHECK(testField::alive == 0);
   REQUIRE(Derived::resetSchema() == true);
 }
 
@@ -241,25 +236,25 @@ TEST_CASE("PropBlock struct destruct custom", "")
 
 TEST_CASE("PropBlock declare all", "[constructor] [access] [modifier]")
 {
-  a = Derived::PropBlockDeclare<testProperty>(3, testProperty::init, testProperty::destroy);
+  a = Derived::PropBlockDeclare<testField>(3, testField::init, testField::destroy);
   b = Derived::PropBlockDeclareBit(5);
   c = Derived::PropBlockDeclare<std::string>(1); // default class constructors
   d = Derived::PropBlockDeclare<int>(1);
 
   CHECK(a == sizeof(Derived));
   CHECK(b == 2);
-  CHECK(c == sizeof(Derived) + 3 * sizeof(testProperty));
-  CHECK(d == sizeof(Derived) + 3 * sizeof(testProperty) + sizeof(std::string));
+  CHECK(c == sizeof(Derived) + 3 * sizeof(testField));
+  CHECK(d == sizeof(Derived) + 3 * sizeof(testField) + sizeof(std::string));
 }
 
 TEST_CASE("PropBlock init all", "[constructor] [access] [modifier]")
 {
   ptr = new Derived();
-  CHECK(testProperty::alive == 3);
+  CHECK(testField::alive == 3);
   ptr->m_str = "Hello";
   {
-    const testProperty *tp = &ptr->propRead<testProperty>(a);
-    const testProperty &dv = tp[1];
+    const testField *tp = &ptr->propRead<testField>(a);
+    const testField &dv = tp[1];
     CHECK(dv.arr[0] == 1);
     CHECK(dv.arr[1] == 2);
     CHECK(dv.arr[2] == 4);
@@ -272,7 +267,7 @@ TEST_CASE("PropBlock struct modify custom", "")
 {
   ptr->propWrite<std::string>(c) = "Foo";
   //
-  testProperty *tp = &ptr->propWrite<testProperty>(a);
+  testField *tp = &ptr->propWrite<testField>(a);
   tp[0].arr[1]     = 3;
   tp[1].arr[3]     = 3;
   tp[0].arr[3]     = 7;
@@ -286,7 +281,7 @@ TEST_CASE("PropBlock struct access custom", "")
 {
   CHECK(ptr->propRead<std::string>(c) == "Foo");
   CHECK(ptr->m_str == "Hello");
-  const testProperty *tp = &ptr->propRead<testProperty>(a);
+  const testField *tp = &ptr->propRead<testField>(a);
   CHECK(tp[0].arr[0] == 1);
   CHECK(tp[0].arr[1] == 3);
   CHECK(tp[0].arr[2] == 3);
@@ -309,8 +304,8 @@ TEST_CASE("PropBlock struct access custom", "")
 TEST_CASE("PropBlock struct cleanup", "")
 {
   delete ptr;
-  CHECK(testProperty::alive == 0);
+  CHECK(testField::alive == 0);
   REQUIRE(Derived::resetSchema() == true);
 }
-
+*/
 // TODO: write multithreaded tests.

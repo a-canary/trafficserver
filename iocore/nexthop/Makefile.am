@@ -29,7 +29,7 @@ noinst_LIBRARIES = libtsnexthop.a
 
 libtsnexthop_a_SOURCES = \
   NextHopHost.h \
-  NextHopHostLookup.h \
+  NextHopHostDNS.h \
   NextHopHostHealth.h \
   NextHopResolver.h \
   NextHopTSAPI.h   
@@ -39,9 +39,7 @@ TESTS = $(check_PROGRAMS)
 check_PROGRAMS = test_tsnexthop  
 
 test_tsnexthop_SOURCES = \
-  unit-tests/unit_test_main.cc \
-  unit-tests/test_PropertyBlock.cc \
-  unit-tests/test_NextHop.cc
+  unit-tests/unit_test_main.cc 
 # add your catch based test file here 
 
 test_LD_FLAGS = \
