@@ -2,6 +2,9 @@
 
 using namespace NextHop;
 
+// Define a std::hash<>() for the key types
+std_hasher_macro(IpAddr, ip, ip.hash());
+
 /// internal lookup maps
 
 // thread safe map: host_name -> host_rec

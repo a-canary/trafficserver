@@ -10,8 +10,6 @@
 
 #include "ts/ink_assert.h"
 
-#include "SharedAccess.h"
-
 using namespace std;
 
 /// Intended to provide a thread safe lookup.
@@ -30,8 +28,8 @@ public:
   getPartMap(const Key_t &key, ResizeLock_t &lock)
   {
     size_t hash   = std::hash<Key_t>()(key);
-    auto part_idx = part_access.getIndex(hash);
-    lock          = ResizeLock_t(part_access.getMutex(part_idx));
+    auto part_idx = hash % part_access.size();
+    lock          = ResizeLock_t(part_access[part_idx]);
 
     return part_maps[part_idx];
   }
@@ -41,8 +39,8 @@ public:
   getPartMap(const Key_t &key, AccessLock_t &lock)
   {
     size_t hash   = std::hash<Key_t>()(key);
-    auto part_idx = part_access.getIndex(hash);
-    lock          = AccessLock_t(part_access.getMutex(part_idx));
+    auto part_idx = hash % part_access.size();
+    lock          = AccessLock_t(part_access[part_idx]);
 
     return part_maps[part_idx];
   }
@@ -95,7 +93,7 @@ public:
   clear()
   {
     for (int part_idx = 0; part_idx < part_access.size(); part_idx) {
-      ResizeLock_t lck(part_access.getMutex(part_idx));
+      ResizeLock_t lck(part_access[part_idx]);
       part_maps[part_idx].clear();
     }
   }
@@ -108,7 +106,7 @@ public:
   visit(function<bool(Key_t const &, Value_t &)> callback)
   {
     for (int part_idx = 0; part_idx < part_access.size(); part_idx) {
-      AccessLock_t lck(part_access.getMutex(part_idx));
+      AccessLock_t lck(part_access[part_idx]);
       for (Value_t val : part_maps[part_idx]) {
         bool done = callback(val);
         if (done) {
@@ -120,7 +118,7 @@ public:
 
 private:
   vector<Map_t> part_maps;
-  LockPool<Mutex_t> part_access;
+  vector<Mutex_t> part_access;
 };
 
 /// SharedMap stores all values as shared pointers so you don't worry about data being destroyed while in use.

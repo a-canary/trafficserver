@@ -82,17 +82,23 @@ TEST_CASE("SharedExtendible Schema Reset", "[constructor] [destructor] ")
   REQUIRE(Derived::schema.reset() == true);
 }
 
+TEST_CASE("SharedExtendible shared_ptr", "[constructor] [destructor] ")
+{
+  shared_ptr<Derived> sptr(new Derived());
+  REQUIRE(sptr);
+}
+
 TEST_CASE("SharedExtendible addBit", "")
 {
-  CHECK(Derived::schema.addField(bit_a, "bit_a"));
+  REQUIRE(Derived::schema.addField(bit_a, "bit_a"));
 }
 
 TEST_CASE("SharedExtendible Test bit", "[constructor] [destructor] ")
 {
-  ptr = new Derived();
-  ptr->writeBit(bit_a, 1);
-  CHECK(ptr->readBit(bit_a) == 1);
-  CHECK(0);
+  shared_ptr<Derived> sptr(new Derived());
+  auto &ref = *sptr;
+  ref.writeBit(bit_a, 1);
+  CHECK(ref[bit_a] == 1);
 }
 /*
 TEST_CASE("PropBlock Tests 2", "[constructor] [access] [modifier]")

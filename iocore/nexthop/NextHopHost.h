@@ -1,3 +1,4 @@
+#pragma once
 #include <atomic>
 #include "SharedMap.h"
 #include "SharedExtendible.h"
@@ -22,9 +23,6 @@
  * @see Name::getMutex()
  *
  */
-
-// Define a std::hash<>() for the key types
-std_hasher_macro(IpAddr, ip, ip.hash());
 
 namespace NextHop
 {
@@ -73,11 +71,11 @@ public:
   // restrict lifetime management
 protected:
   // Note, this uses SharedExtendible::new and delete to manage allocations.
-  HostRecord();
+  HostRecord(){};
   HostRecord(HostRecord &) = delete;
 
   static SharedMap<KeyHashed<HostParam>, HostRecord> map;
-  friend SharedMap<KeyHashed<HostParam>, HostRecord>; // allow the map to allocate
+  friend class SharedMap<KeyHashed<HostParam>, HostRecord>; // allow the map to allocate
 };
 
 /// Allows code to allocate and access data per Host IpAddr. Built-in thread safety.

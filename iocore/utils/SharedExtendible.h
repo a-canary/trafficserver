@@ -252,7 +252,7 @@ template <typename Derived_t> struct SharedExtendible {
   atomic<Field_t> &
   get(FieldId<ATOMIC, Field_t> const &field)
   {
-    return new (this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset) atomic<Field_t>;
+    return *static_cast<atomic<Field_t> *>(this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset);
   }
 
   /// atomically read a bit value
@@ -295,7 +295,7 @@ template <typename Derived_t> struct SharedExtendible {
   /// return a reference to an const field that is non-const for initialization purposes
   template <typename Field_t>
   Field_t &
-  init(FieldId<CONST, Field_t> field)
+  writeConst(FieldId<CONST, Field_t> field)
   {
     return *static_cast<Field_t *>(this_as_char_ptr() + schema.mem_offsets[sizeof(Field_t)] + field.offset);
   }
@@ -318,6 +318,7 @@ template <typename Derived_t> struct SharedExtendible {
     return writer_ptr<Field_t>(data_ptr);
   }
 
+  template <FieldAccessEnum Access_t, typename Field_t> auto operator[](FieldId<Access_t, Field_t> field) { return get(field); }
   ///
   /// lifetime management
   ///

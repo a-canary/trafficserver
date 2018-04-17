@@ -39,10 +39,12 @@ TESTS = $(check_PROGRAMS)
 check_PROGRAMS = test_tsnexthop  
 
 test_tsnexthop_SOURCES = \
-  unit-tests/unit_test_main.cc 
+  unit-tests/unit_test_main.cc \
+  unit-tests/test_SharedExtendible.cc \
+  unit-tests/test_NextHop.cc
 # add your catch based test file here 
 
-test_LD_FLAGS = \
+test_tsnexthop_LD_FLAGS = \
   @AM_LDFLAGS@ \
   @OPENSSL_LDFLAGS@
 
@@ -52,7 +54,7 @@ test_tsnexthop_CPPFLAGS = $(AM_CPPFLAGS)\
 test_tsnexthop_CXXFLAGS = -Wno-array-bounds $(AM_CXXFLAGS)
 
 test_tsnexthop_LDADD = \
-  libtsnexthop.la \
+  libtsnexthop.a \
   $(top_builddir)/lib/records/librecords_p.a \
   $(top_builddir)/mgmt/libmgmt_p.la \
   $(top_builddir)/iocore/utils/libinkutils.a \

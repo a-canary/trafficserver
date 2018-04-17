@@ -5,24 +5,10 @@
 
 using namespace std;
 
-/// Intended to make datasets thread safe by assigning locks to stripes of data.
-/** Allocates a fixed number of locks and retrives them with a hash. */
+/// Intended to make datasets thread safe by assigning locks to stripes of data, kind of like a bloom filter.
+/** Allocates a fixed number of locks and retrives one with a hash. */
 template <typename Mutex_t> struct LockPool {
-  using Index_t = uint8_t;
-
   LockPool(size_t num_locks) : mutexes(num_locks) {}
-
-  Index_t
-  getIndex(size_t key_hash) const
-  {
-    return key_hash % size();
-  }
-
-  Mutex_t &
-  getMutex(Index_t index)
-  {
-    return mutexes[index];
-  }
 
   Mutex_t &
   getMutex(size_t key_hash)
@@ -55,5 +41,6 @@ template <typename Mutex_t> struct LockPool {
 private:
   vector<Mutex_t> mutexes;
 
+  /// please use the other constructor to define how many locks you want.
   LockPool(){};
 };

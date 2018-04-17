@@ -19,6 +19,7 @@
 #include "catch.hpp"
 
 #include "NextHopHost.h"
+#include "NextHopHost.cc"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -26,17 +27,39 @@
 using namespace std;
 using namespace NextHop;
 
+typename HostRecord::BitFieldId bit_a, bit_b;
+shared_ptr<HostRecord> host_ptr, host_ptr2;
+
 // ======= test for string_view ========
 // test cases:
 //[constructor] [operator] [type] [access] [capacity] [modifier] [operation] [compare] [find]
 
 TEST_CASE("NextHop Host constructor", "[NextHop] [Host] [constructor]")
 {
-  HostRecord::BitFieldId bit_a, bit_b;
   SECTION("Declare fields")
   {
     REQUIRE(HostRecord::schema.addField(bit_a, "bit_a"));
     REQUIRE(HostRecord::schema.addField(bit_b, "bit_b"));
   }
-  SECTION("Literal look for NULL") {}
+
+  SECTION("find_or_alloc")
+  {
+    REQUIRE(HostRecord::find_or_alloc("test_host.com", host_ptr) == false);
+    REQUIRE(HostRecord::find_or_alloc("test_host.com", host_ptr2) == true);
+    REQUIRE(host_ptr == host_ptr2);
+    REQUIRE(host_ptr);
+    REQUIRE(host_ptr2);
+  }
+
+  SECTION("use fields")
+  {
+    auto &host = *host_ptr;
+    host.writeBit(bit_a, 1);
+    REQUIRE(host[bit_a] == 1);
+    REQUIRE(host[bit_b] == 0);
+    host.writeBit(bit_b, 1);
+    host.writeBit(bit_a, 0);
+    REQUIRE(host[bit_a] == 0);
+    REQUIRE(host[bit_b] == 1);
+  }
 }
