@@ -20,10 +20,10 @@ include $(top_srcdir)/build/tidy.mk
 
 library_includedir=$(includedir)/ts
 
-library_include_HEADERS = apidefs.h
+library_include_HEADERS = apidefs.h string_view.h TextView.h
 
 noinst_PROGRAMS = mkdfa CompileParseRules
-check_PROGRAMS = test_tsutil test_arena test_atomic test_freelist test_geometry test_List test_Map test_Vec test_X509HostnameValidator test_Scalar test_tslib
+check_PROGRAMS = test_tsutil test_arena test_atomic test_freelist test_geometry test_List test_Map test_Vec test_X509HostnameValidator test_tslib
 
 TESTS_ENVIRONMENT = LSAN_OPTIONS=suppressions=suppression.txt
 
@@ -32,9 +32,10 @@ TESTS = $(check_PROGRAMS)
 lib_LTLIBRARIES = libtsutil.la
 
 AM_CPPFLAGS += \
-               $(iocore_include_dirs) \
-               -I$(abs_top_srcdir)/lib \
-               -I$(abs_top_srcdir)/lib/records
+  $(iocore_include_dirs) \
+  -I$(abs_top_srcdir)/lib \
+  -I$(abs_top_srcdir)/lib/records \
+  $(TS_INCLUDES)
 
 libtsutil_la_LDFLAGS = -no-undefined -version-info @TS_LIBTOOL_VERSION@
 libtsutil_la_LIBADD = \
@@ -55,6 +56,9 @@ libtsutil_la_SOURCES = \
   BaseLogFile.h \
   Bitops.cc \
   Bitops.h \
+  BufferWriter.h \
+  BufferWriterForward.h \
+  BufferWriterFormat.cc \
   ConsistentHash.cc \
   ConsistentHash.h \
   ContFlags.cc \
@@ -160,6 +164,8 @@ libtsutil_la_SOURCES = \
   IpMapConf.h \
   IpMap.h \
   I_Version.h \
+  JeAllocator.h \
+  JeAllocator.cc \
   Layout.cc \
   List.h \
   llqueue.cc \
@@ -167,6 +173,9 @@ libtsutil_la_SOURCES = \
   Map.h \
   MatcherUtils.cc \
   MatcherUtils.h \
+  MemSpan.h \
+  MemArena.cc \
+  MemArena.h \
   MMH.cc \
   MMH.h \
   MT_hashtable.h \
@@ -191,7 +200,6 @@ libtsutil_la_SOURCES = \
   SourceLocation.cc \
   SourceLocation.h \
   string_view.h \
-  BufferWriter.h \
   TestBox.h \
   TextBuffer.cc \
   TextBuffer.h \
@@ -248,8 +256,6 @@ test_tsutil_SOURCES = \
 	test_Regex.cc \
 	tests.cc
 
-test_Scalar_SOURCES = test_Scalar.cc Scalar.h
-
 test_tslib_CPPFLAGS = $(AM_CPPFLAGS)\
 	-I$(abs_top_srcdir)/tests/include
 
@@ -259,17 +265,21 @@ test_tslib_LDADD = libtsutil.la $(top_builddir)/iocore/eventsystem/libinkevent.a
 test_tslib_SOURCES = \
 	unit-tests/unit_test_main.cc \
 	unit-tests/test_BufferWriter.cc \
+	unit-tests/test_BufferWriterFormat.cc \
 	unit-tests/test_ink_inet.cc \
 	unit-tests/test_IpMap.cc \
 	unit-tests/test_layout.cc \
+       unit-tests/test_MemSpan.cc \
+       unit-tests/test_MemArena.cc \
 	unit-tests/test_MT_hashtable.cc \
+	unit-tests/test_Scalar.cc \
 	unit-tests/test_string_view.cc \
-	unit-tests/test_TextView.cc
+	unit-tests/test_TextView.cc 
 
 CompileParseRules_SOURCES = CompileParseRules.cc
 
 clean-local:
 	rm -f ParseRulesCType ParseRulesCTypeToLower ParseRulesCTypeToUpper
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

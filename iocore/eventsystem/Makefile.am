@@ -18,7 +18,8 @@
 
 AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/lib/records
+  -I$(abs_top_srcdir)/lib/records \
+  $(TS_INCLUDES)
 
 TESTS = $(check_PROGRAMS)
 
@@ -126,5 +127,5 @@ test_MIOBufferWriter_SOURCES = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

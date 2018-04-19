@@ -21,7 +21,8 @@ include $(top_srcdir)/build/tidy.mk
 
 AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/proxy
+  -I$(abs_top_srcdir)/proxy \
+  $(TS_INCLUDES)
 
 #WCCP_DEFS = @WCCP_DEFS@
 #DEFS += $(WCCP_DEFS)
@@ -44,5 +45,5 @@ libwccp_a_SOURCES = \
 
 # test_cache_LDADD = $(LDADD) -L$(top_builddir)/lib/tsconfig -ltsconfig -L$(top_builddir)/lib/wccp -lwccp -L$(top_builddir)/lib/ts -ltsutil
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

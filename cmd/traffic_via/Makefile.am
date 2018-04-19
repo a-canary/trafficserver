@@ -20,7 +20,8 @@
 AM_CPPFLAGS += \
   $(iocore_include_dirs) \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/mgmt/api/include
+  -I$(abs_top_srcdir)/mgmt/api/include \
+  $(TS_INCLUDES)
 
 AM_LDFLAGS += \
   @OPENSSL_LDFLAGS@
@@ -39,5 +40,5 @@ TESTS = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

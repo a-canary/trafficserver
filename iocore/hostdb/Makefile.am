@@ -24,7 +24,8 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/proxy/hdrs \
   -I$(abs_top_srcdir)/proxy/http \
   -I$(abs_top_srcdir)/mgmt \
-  -I$(abs_top_srcdir)/mgmt/utils
+  -I$(abs_top_srcdir)/mgmt/utils \
+  $(TS_INCLUDES)
 
 EXTRA_DIST = I_HostDB.h
 
@@ -82,5 +83,5 @@ test_RefCountCache_LDADD = $(test_LD_ADD)
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

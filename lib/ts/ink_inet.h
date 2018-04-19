@@ -22,8 +22,7 @@
 
  */
 
-#if !defined(_ink_inet_h_)
-#define _ink_inet_h_
+#pragma once
 
 #include <netinet/in.h>
 #include <netdb.h>
@@ -139,10 +138,10 @@ int ats_tcp_somaxconn();
 
     @return 0 if an address was found, non-zero otherwise.
 */
-int ats_ip_parse(ts::string_view src,      ///< [in] String to search.
-                 ts::string_view *addr,    ///< [out] Range containing IP address.
-                 ts::string_view *port,    ///< [out] Range containing port.
-                 ts::string_view *rest = 0 ///< [out] Remnant past the addr/port if any.
+int ats_ip_parse(ts::string_view src,            ///< [in] String to search.
+                 ts::string_view *addr,          ///< [out] Range containing IP address.
+                 ts::string_view *port,          ///< [out] Range containing port.
+                 ts::string_view *rest = nullptr ///< [out] Remnant past the addr/port if any.
                  );
 
 /**  Check to see if a buffer contains only IP address characters.
@@ -543,7 +542,7 @@ ats_ip6_addr_cast(IpEndpoint const *ip)
 inline uint32_t *
 ats_ip_addr32_cast(sockaddr *addr)
 {
-  uint32_t *zret = 0;
+  uint32_t *zret = nullptr;
   switch (addr->sa_family) {
   case AF_INET:
     zret = reinterpret_cast<uint32_t *>(&ats_ip4_addr_cast(addr));
@@ -570,7 +569,7 @@ ats_ip_addr32_cast(sockaddr const *addr)
 inline uint8_t *
 ats_ip_addr8_cast(sockaddr *addr)
 {
-  uint8_t *zret = 0;
+  uint8_t *zret = nullptr;
   switch (addr->sa_family) {
   case AF_INET:
     zret = reinterpret_cast<uint8_t *>(&ats_ip4_addr_cast(addr));
@@ -1449,6 +1448,8 @@ ats_ip_pton(const char *text, ///< [in] text.
   return addr.load(text) ? 0 : -1;
 }
 
+int ats_ip_range_parse(ts::string_view src, IpAddr &lower, IpAddr &upper);
+
 inline IpEndpoint &
 IpEndpoint::assign(IpAddr const &addr, in_port_t port)
 {
@@ -1541,5 +1542,3 @@ IpEndpoint::setToLoopback(int family)
   }
   return *this;
 }
-
-#endif // _ink_inet.h

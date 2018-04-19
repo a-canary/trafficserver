@@ -26,8 +26,7 @@ Process arguments
 
 ****************************************************************************/
 
-#ifndef _INK_ARGS_H
-#define _INK_ARGS_H
+#pragma once
 #include "ts/ink_defs.h"
 #include "ts/ink_apidefs.h"
 
@@ -95,9 +94,7 @@ void usage(const ArgumentDescription *argument_descriptions, unsigned n_argument
 /* Process all arguments
 */
 void process_args(const AppVersionInfo *appinfo, const ArgumentDescription *argument_descriptions, unsigned n_argument_descriptions,
-                  const char **argv, const char *usage_string = 0);
+                  const char **argv, const char *usage_string = nullptr);
 
 bool process_args_ex(const AppVersionInfo *appinfo, const ArgumentDescription *argument_descriptions,
                      unsigned n_argument_descriptions, const char **argv);
-
-#endif /*_INK_ARGS_H*/

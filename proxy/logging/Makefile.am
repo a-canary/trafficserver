@@ -28,7 +28,8 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/proxy/hdrs \
   -I$(abs_top_srcdir)/proxy/shared \
   -I$(abs_top_srcdir)/mgmt \
-  -I$(abs_top_srcdir)/mgmt/utils
+  -I$(abs_top_srcdir)/mgmt/utils \
+  $(TS_INCLUDES)
 
 if BUILD_LUAJIT
 AM_CPPFLAGS += \
@@ -95,5 +96,5 @@ test_LogUtils_LDADD = \
 test_LogUtils_SOURCES = \
   test_LogUtils.cc
 
-tidy-local: $(liblogging_a_SOURCES) $(liblogcollation_a_SOURCES) $(EXTRA_DIST)
+clang-tidy-local: $(liblogging_a_SOURCES) $(liblogcollation_a_SOURCES) $(EXTRA_DIST)
 	$(CXX_Clang_Tidy)

@@ -51,8 +51,7 @@
 
  ****************************************************************************/
 
-#ifndef _List_h_
-#define _List_h_
+#pragma once
 
 #include <stdint.h>
 
@@ -740,7 +739,5 @@ template <class C, class L = typename C::Link_link> struct AtomicSLL {
 
 template <class C, class L> inline AtomicSLL<C, L>::AtomicSLL()
 {
-  ink_atomiclist_init(&al, "AtomicSLL", (uint32_t)(uintptr_t)&L::next_link((C *)0));
+  ink_atomiclist_init(&al, "AtomicSLL", (uint32_t)(uintptr_t)&L::next_link((C *)nullptr));
 }
-
-#endif /*_List_h_*/

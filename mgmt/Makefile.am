@@ -33,7 +33,8 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/proxy/http \
   -I$(abs_top_srcdir)/proxy/hdrs \
   -I$(abs_top_srcdir)/lib/records \
-  -I$(abs_top_srcdir)/lib
+  -I$(abs_top_srcdir)/lib \
+  $(TS_INCLUDES)
 
 libmgmt_c_la_SOURCES = \
   RecordsConfig.cc \
@@ -75,5 +76,5 @@ libmgmt_p_la_LIBADD = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

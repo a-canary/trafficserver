@@ -1,13 +1,3 @@
-#if !defined(TS_IP_MAP_HEADER)
-#define TS_IP_MAP_HEADER
-
-#include "ts/ink_platform.h"
-#include "ts/ink_defs.h"
-#include "ts/RbTree.h"
-#include "ts/ink_inet.h"
-#include "ts/IntrusiveDList.h"
-#include "ts/ink_assert.h"
-
 /** @file
 
     Map of IP addresses to client data.
@@ -30,6 +20,15 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 */
+
+#pragma once
+
+#include "ts/ink_platform.h"
+#include "ts/ink_defs.h"
+#include "ts/RbTree.h"
+#include "ts/ink_inet.h"
+#include "ts/IntrusiveDList.h"
+#include "ts/ink_assert.h"
 
 namespace ts
 {
@@ -110,7 +109,7 @@ public:
   public:
     typedef Node self; ///< Self reference type.
     /// Default constructor.
-    Node() : _data(0) {}
+    Node() : _data(nullptr) {}
     /// Construct with @a data.
     Node(void *data) : _data(data) {}
     /// @return Client data for the node.
@@ -154,7 +153,7 @@ public:
     typedef Node &reference;     ///< Reference to referent.
     typedef std::bidirectional_iterator_tag iterator_category;
     /// Default constructor.
-    iterator() : _tree(0), _node(0) {}
+    iterator() : _tree(nullptr), _node(nullptr) {}
     reference operator*() const; //!< value operator
     pointer operator->() const;  //!< dereference operator
     self &operator++();          //!< next node (prefix)
@@ -413,7 +412,7 @@ IpMap::contains(IpAddr const &addr, void **ptr) const
 inline IpMap::iterator
 IpMap::end() const
 {
-  return iterator(this, 0);
+  return iterator(this, nullptr);
 }
 
 inline IpMap::iterator IpMap::iterator::operator++(int)
@@ -446,8 +445,6 @@ inline IpMap::iterator::pointer IpMap::iterator::operator->() const
   return _node;
 }
 
-inline IpMap::IpMap() : _m4(0), _m6(0)
+inline IpMap::IpMap() : _m4(nullptr), _m6(nullptr)
 {
 }
-
-#endif // TS_IP_MAP_HEADER

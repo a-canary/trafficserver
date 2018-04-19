@@ -21,7 +21,8 @@ include $(top_srcdir)/build/tidy.mk
 AM_CPPFLAGS += \
   $(LUAJIT_CPPFLAGS) \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/lib/records
+  -I$(abs_top_srcdir)/lib/records \
+  $(TS_INCLUDES)
 
 noinst_LTLIBRARIES = libbindings.la
 
@@ -35,5 +36,5 @@ libbindings_la_SOURCES = \
   repl.cc \
   repl.h
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

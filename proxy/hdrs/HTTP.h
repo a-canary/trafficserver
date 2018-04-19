@@ -21,8 +21,7 @@
   limitations under the License.
  */
 
-#ifndef __HTTP_H__
-#define __HTTP_H__
+#pragma once
 
 #include <assert.h>
 #include "ts/Arena.h"
@@ -159,6 +158,12 @@ enum SquidLogCode {
   SQUID_LOG_ERR_WEBFETCH_DETECTED     = 'H',
   SQUID_LOG_ERR_FUTURE_1              = 'I',
   SQUID_LOG_ERR_UNKNOWN               = 'Z'
+};
+
+// squild log subcodes
+enum SquidSubcode {
+  SQUID_SUBCODE_EMPTY                     = '0',
+  SQUID_SUBCODE_NUM_REDIRECTIONS_EXCEEDED = '1',
 };
 
 /* squid hieratchy codes */
@@ -442,6 +447,7 @@ void http_parser_clear(HTTPParser *parser);
 ParseResult http_parser_parse_req(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const char **start, const char *end,
                                   bool must_copy_strings, bool eof, bool strict_uri_parsing);
 ParseResult validate_hdr_host(HTTPHdrImpl *hh);
+ParseResult validate_hdr_content_length(HdrHeap *heap, HTTPHdrImpl *hh);
 ParseResult http_parser_parse_resp(HTTPParser *parser, HdrHeap *heap, HTTPHdrImpl *hh, const char **start, const char *end,
                                    bool must_copy_strings, bool eof);
 
@@ -538,15 +544,15 @@ public:
       and invoking @c URL::string_get if the host is in a header
       field and not explicitly in the URL.
    */
-  char *url_string_get(Arena *arena = 0, ///< Arena to use, or @c malloc if NULL.
-                       int *length  = 0  ///< Store string length here.
+  char *url_string_get(Arena *arena = nullptr, ///< Arena to use, or @c malloc if NULL.
+                       int *length  = nullptr  ///< Store string length here.
                        );
   /** Get a string with the effective URL in it.
       This is automatically allocated if needed in the request heap.
 
       @see url_string_get
    */
-  char *url_string_get_ref(int *length = 0 ///< Store string length here.
+  char *url_string_get_ref(int *length = nullptr ///< Store string length here.
                            );
 
   /** Print the URL.
@@ -571,7 +577,7 @@ public:
       @note The results are cached so this is fast after the first call.
       @return A pointer to the host name.
   */
-  const char *host_get(int *length = 0);
+  const char *host_get(int *length = nullptr);
 
   /** Get the target port.
       If the target port is not found then it is adjusted to the
@@ -604,7 +610,7 @@ public:
   /// If @a url is @c NULL the cached URL in this header is used.
   /// @note In the default case the copy is avoided if the cached URL already
   /// has the target. If @a url is non @c NULL the copy is always performed.
-  void set_url_target_from_host_field(URL *url = 0);
+  void set_url_target_from_host_field(URL *url = nullptr);
 
   /// Mark the target cache as invalid.
   /// @internal Ugly but too many places currently that touch the
@@ -1280,14 +1286,14 @@ inline const char *
 HTTPHdr::path_get(int *length)
 {
   URL *url = this->url_get();
-  return url ? url->path_get(length) : 0;
+  return url ? url->path_get(length) : nullptr;
 }
 
 inline const char *
 HTTPHdr::scheme_get(int *length)
 {
   URL *url = this->url_get();
-  return url ? url->scheme_get(length) : 0;
+  return url ? url->scheme_get(length) : nullptr;
 }
 
 /*-------------------------------------------------------------------------
@@ -1549,7 +1555,7 @@ HTTPInfo::compare_object_key(const CryptoHash *hash)
 inline int64_t
 HTTPInfo::object_size_get()
 {
-  int64_t val;
+  int64_t val = 0; // make gcc shut up.
   int32_t *pi = reinterpret_cast<int32_t *>(&val);
 
   pi[0] = m_alt->m_object_size[0];
@@ -1575,7 +1581,7 @@ HTTPInfo::object_size_set(int64_t size)
 inline HTTPInfo::FragOffset *
 HTTPInfo::get_frag_table()
 {
-  return m_alt ? m_alt->m_frag_offsets : 0;
+  return m_alt ? m_alt->m_frag_offsets : nullptr;
 }
 
 inline int
@@ -1583,5 +1589,3 @@ HTTPInfo::get_frag_offset_count()
 {
   return m_alt ? m_alt->m_frag_offset_count : 0;
 }
-
-#endif /* __HTTP_H__ */

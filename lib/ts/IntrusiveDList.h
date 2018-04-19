@@ -1,6 +1,3 @@
-#if !defined(TS_INTRUSIVE_DOUBLE_LIST_HEADER)
-#define TS_INTRUSIVE_DOUBLE_LIST_HEADER
-
 /** @file
 
     Intrusive double linked list container.
@@ -41,6 +38,8 @@
     limitations under the License.
 
  */
+
+#pragma once
 
 /// FreeBSD doesn't like just declaring the tag struct we need so we have to include the file.
 #include <iterator>
@@ -193,7 +192,7 @@ public:
   };
 
   /// Default constructor (empty list).
-  IntrusiveDList() : _head(0), _tail(0), _count(0) {}
+  IntrusiveDList() : _head(nullptr), _tail(nullptr), _count(0) {}
   /// Empty check.
   /// @return @c true if the list is empty.
   bool
@@ -208,7 +207,7 @@ public:
           )
   {
     elt->*N = _head;
-    elt->*P = 0;
+    elt->*P = nullptr;
     if (_head)
       _head->*P = elt;
     _head       = elt;
@@ -223,7 +222,7 @@ public:
   append(T *elt ///< Element to add.
          )
   {
-    elt->*N = 0;
+    elt->*N = nullptr;
     elt->*P = _tail;
     if (_tail)
       _tail->*N = elt;
@@ -325,7 +324,7 @@ public:
       _head = elt->*N;
     if (elt == _tail)
       _tail = elt->*P;
-    elt->*P = elt->*N = 0;
+    elt->*P = elt->*N = nullptr;
     --_count;
     return *this;
   }
@@ -335,7 +334,7 @@ public:
   self &
   clear()
   {
-    _head = _tail = 0;
+    _head = _tail = nullptr;
     _count        = 0;
     return *this;
   }
@@ -376,5 +375,3 @@ protected:
   T *_tail;      ///< Last element in list.
   size_t _count; ///< # of elements in list.
 };
-
-#endif // TS_INTRUSIVE_DOUBLE_LIST_HEADER

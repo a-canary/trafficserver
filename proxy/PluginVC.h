@@ -33,8 +33,7 @@
 
  ****************************************************************************/
 
-#ifndef _PLUGIN_VC_H_
-#define _PLUGIN_VC_H_
+#pragma once
 
 #include "Plugin.h"
 #include "P_Net.h"
@@ -77,9 +76,10 @@ public:
   PluginVC(PluginVCCore *core_obj);
   ~PluginVC();
 
-  virtual VIO *do_io_read(Continuation *c = NULL, int64_t nbytes = INT64_MAX, MIOBuffer *buf = 0);
+  virtual VIO *do_io_read(Continuation *c = nullptr, int64_t nbytes = INT64_MAX, MIOBuffer *buf = nullptr);
 
-  virtual VIO *do_io_write(Continuation *c = NULL, int64_t nbytes = INT64_MAX, IOBufferReader *buf = 0, bool owner = false);
+  virtual VIO *do_io_write(Continuation *c = nullptr, int64_t nbytes = INT64_MAX, IOBufferReader *buf = nullptr,
+                           bool owner = false);
 
   virtual void do_io_close(int lerrno = -1);
   virtual void do_io_shutdown(ShutdownHowTo_t howto);
@@ -266,14 +266,14 @@ private:
 inline PluginVCCore::PluginVCCore()
   : active_vc(this),
     passive_vc(this),
-    connect_to(NULL),
+    connect_to(nullptr),
     connected(false),
-    p_to_a_buffer(NULL),
-    p_to_a_reader(NULL),
-    a_to_p_buffer(NULL),
-    a_to_p_reader(NULL),
-    passive_data(NULL),
-    active_data(NULL),
+    p_to_a_buffer(nullptr),
+    p_to_a_reader(nullptr),
+    a_to_p_buffer(nullptr),
+    a_to_p_reader(nullptr),
+    passive_data(nullptr),
+    active_data(nullptr),
     id(0)
 {
   memset(&active_addr_struct, 0, sizeof active_addr_struct);
@@ -281,5 +281,3 @@ inline PluginVCCore::PluginVCCore()
 
   id = ink_atomic_increment(&nextid, 1);
 }
-
-#endif

@@ -21,7 +21,8 @@ include $(top_srcdir)/build/tidy.mk
 AM_CPPFLAGS += \
   $(iocore_include_dirs) \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/lib/records
+  -I$(abs_top_srcdir)/lib/records \
+  $(TS_INCLUDES)
 
 noinst_LIBRARIES = libhdrs.a
 EXTRA_PROGRAMS = load_http_hdr
@@ -78,5 +79,5 @@ test_mime_SOURCES = test_mime.cc
 #test_UNUSED_SOURCES = \
 #  test_urlhash.cc
 
-tidy-local: $(libhdrs_a_SOURCES)
+clang-tidy-local: $(libhdrs_a_SOURCES)
 	$(CXX_Clang_Tidy)

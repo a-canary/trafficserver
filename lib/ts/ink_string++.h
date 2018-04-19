@@ -30,8 +30,7 @@
 
  ****************************************************************************/
 
-#if !defined(_ink_string_pp_h_)
-#define _ink_string_pp_h_
+#pragma once
 #include <stdio.h>
 #include <strings.h>
 
@@ -47,7 +46,7 @@ struct Str {
   struct Str *next; // next in list
   struct Str *prev; // prev in list
 
-  Str() : str(nullptr), len(0), next(NULL), prev(NULL) {}
+  Str() : str(nullptr), len(0), next(nullptr), prev(nullptr) {}
   Str(char *s)
   {
     str  = s;
@@ -262,7 +261,7 @@ StrList::prepend(Str *str)
 inline void
 StrList::add_after(Str *prev, Str *str)
 {
-  if (str == nullptr || prev == NULL)
+  if (str == nullptr || prev == nullptr)
     return;
   ++count;
   str->next  = prev->next;
@@ -298,5 +297,3 @@ StrList::append_string(const char *s, int len_not_counting_nul)
   append(cell);
   return (cell);
 }
-
-#endif

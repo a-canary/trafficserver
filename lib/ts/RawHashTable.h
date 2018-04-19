@@ -28,8 +28,7 @@
 
 */
 
-#ifndef _RawHashTable_h_
-#define _RawHashTable_h_
+#pragma once
 
 #include "ts/ink_apidefs.h"
 #include "ts/ink_hash_table.h"
@@ -82,7 +81,7 @@ public:
   //
 
   RawHashTable_Binding *getCurrentBinding(RawHashTable_Key key);
-  RawHashTable_Binding *getOrCreateBinding(RawHashTable_Key key, bool *was_new = NULL);
+  RawHashTable_Binding *getOrCreateBinding(RawHashTable_Key key, bool *was_new = nullptr);
 
   void setBindingValue(RawHashTable_Binding *binding, RawHashTable_Value value);
   RawHashTable_Key getKeyFromBinding(RawHashTable_Binding *binding);
@@ -354,7 +353,7 @@ inline RawHashTable_Value &RawHashTableIter::operator++()
 
 inline RawHashTableIter::operator const void *() const
 {
-  return ((m_currentBinding != 0) ? this : 0);
+  return ((m_currentBinding != nullptr) ? this : nullptr);
 }
 
 inline RawHashTable_Value &
@@ -369,7 +368,7 @@ RawHashTableIter::key() const
   return (m_currentBinding->key.string);
 }
 
-inline RawHashTableIter::RawHashTableIter(RawHashTable &ht) : m_ht(ht), m_currentBinding(0)
+inline RawHashTableIter::RawHashTableIter(RawHashTable &ht) : m_ht(ht), m_currentBinding(nullptr)
 {
   m_currentBinding = m_ht.firstBinding(&m_hashIterState);
   return;
@@ -379,5 +378,3 @@ inline RawHashTableIter::~RawHashTableIter()
 {
   return;
 }
-
-#endif /*_RawHashTable_h_*/

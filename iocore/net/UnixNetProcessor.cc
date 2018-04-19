@@ -204,8 +204,8 @@ UnixNetProcessor::accept_internal(Continuation *cont, int fd, AcceptOptions cons
 void
 NetProcessor::stop_accept()
 {
-  for (auto na = naVec.begin(); na != naVec.end(); ++na) {
-    (*na)->stop_accept();
+  for (auto &na : naVec) {
+    na->stop_accept();
   }
 }
 
@@ -428,8 +428,9 @@ UnixNetProcessor::init()
   netHandler_offset = eventProcessor.allocate(sizeof(NetHandler));
   pollCont_offset   = eventProcessor.allocate(sizeof(PollCont));
 
-  if (0 == accept_mss)
+  if (0 == accept_mss) {
     REC_ReadConfigInteger(accept_mss, "proxy.config.net.sock_mss_in");
+  }
 
   // NetHandler - do the global configuration initialization and then
   // schedule per thread start up logic. Global init is done only here.

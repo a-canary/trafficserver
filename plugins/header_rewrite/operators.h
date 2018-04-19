@@ -19,8 +19,7 @@
 //
 // Implement the classes for the various types of hash keys we support.
 //
-#ifndef __OPERATORS_H__
-#define __OPERATORS_H__ 1
+#pragma once
 
 #include <string>
 
@@ -58,7 +57,7 @@ private:
 class OperatorSetStatus : public Operator
 {
 public:
-  OperatorSetStatus() : _reason(NULL), _reason_len(0) { TSDebug(PLUGIN_NAME_DBG, "Calling CTOR for OperatorSetStatus"); }
+  OperatorSetStatus() : _reason(nullptr), _reason_len(0) { TSDebug(PLUGIN_NAME_DBG, "Calling CTOR for OperatorSetStatus"); }
   void initialize(Parser &p);
 
 protected:
@@ -312,6 +311,22 @@ private:
   Value _ds_value;
 };
 
+class OperatorSetConnMark : public Operator
+{
+public:
+  OperatorSetConnMark() { TSDebug(PLUGIN_NAME_DBG, "Calling CTOR for OperatorSetConnMark"); }
+  void initialize(Parser &p);
+
+protected:
+  void initialize_hooks();
+  void exec(const Resources &res) const;
+
+private:
+  DISALLOW_COPY_AND_ASSIGN(OperatorSetConnMark);
+
+  Value _ds_value;
+};
+
 class OperatorSetDebug : public Operator
 {
 public:
@@ -325,5 +340,3 @@ protected:
 private:
   DISALLOW_COPY_AND_ASSIGN(OperatorSetDebug);
 };
-
-#endif // __OPERATORS_H

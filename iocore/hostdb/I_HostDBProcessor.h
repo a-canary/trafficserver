@@ -21,8 +21,7 @@
   limitations under the License.
  */
 
-#ifndef _I_HostDBProcessor_h_
-#define _I_HostDBProcessor_h_
+#pragma once
 
 #include "ts/HashFNV.h"
 #include "ts/ink_time.h"
@@ -242,7 +241,7 @@ struct HostDBInfo : public RefCountObj {
   bool
   is_ip_timeout() const
   {
-    return ip_timeout_interval && ip_interval() >= ip_timeout_interval;
+    return ip_interval() >= ip_timeout_interval;
   }
 
   bool
@@ -337,9 +336,8 @@ struct HostDBInfo : public RefCountObj {
   unsigned int hostname_offset; // always maintain a permanent copy of the hostname for non-rev dns records.
 
   unsigned int ip_timestamp;
-  // limited to HOST_DB_MAX_TTL (0x1FFFFF, 24 days)
-  // if this is 0 then no timeout.
-  unsigned int ip_timeout_interval;
+
+  unsigned int ip_timeout_interval; // bounded between 1 and HOST_DB_MAX_TTL (0x1FFFFF, 24 days)
 
   unsigned int is_srv : 1;
   unsigned int reverse_dns : 1;
@@ -476,7 +474,7 @@ struct HostDBProcessor : public Processor {
   void
   setbyaddr_appinfo(sockaddr const *addr, HostDBApplicationInfo *app)
   {
-    this->setby(0, 0, addr, app);
+    this->setby(nullptr, 0, addr, app);
   }
 
   void
@@ -484,7 +482,7 @@ struct HostDBProcessor : public Processor {
   {
     sockaddr_in addr;
     ats_ip4_set(&addr, ip);
-    this->setby(0, 0, ats_ip_sa_cast(&addr), app);
+    this->setby(nullptr, 0, ats_ip_sa_cast(&addr), app);
   }
 
   /** Configuration. */
@@ -524,5 +522,3 @@ void run_HostDBTest();
 extern inkcoreapi HostDBProcessor hostDBProcessor;
 
 void ink_hostdb_init(ModuleVersion version);
-
-#endif

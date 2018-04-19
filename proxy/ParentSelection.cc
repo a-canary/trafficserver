@@ -27,6 +27,7 @@
 #include "ControlMatcher.h"
 #include "Main.h"
 #include "ProxyConfig.h"
+#include "HostStatus.h"
 #include "HTTP.h"
 #include "HttpTransact.h"
 #include "I_Machine.h"
@@ -88,6 +89,15 @@ ParentConfigParams::ParentConfigParams(P_table *_parent_table) : parent_table(_p
   REC_ReadConfigStringAlloc(default_val, default_var);
   DefaultParent = createDefaultParent(default_val);
   ats_free(default_val);
+}
+
+ParentConfigParams::~ParentConfigParams()
+{
+  if (parent_table) {
+    Debug("parent_select", "~ParentConfigParams(): releasing parent_table %p", parent_table);
+  }
+  delete parent_table;
+  delete DefaultParent;
 }
 
 bool
@@ -406,6 +416,7 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
   if (numTok == 0) {
     return "No parents specified";
   }
+  HostStatus &hs = HostStatus::instance();
   // Allocate the parents array
   if (isPrimary) {
     this->parents = (pRecord *)ats_malloc(sizeof(pRecord) * numTok);
@@ -481,6 +492,7 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
       this->parents[i].name                    = this->parents[i].hostname;
       this->parents[i].available               = true;
       this->parents[i].weight                  = weight;
+      hs.createHostStat(this->parents[i].hostname);
     } else {
       memcpy(this->secondary_parents[i].hostname, current, tmp - current);
       this->secondary_parents[i].hostname[tmp - current] = '\0';
@@ -492,6 +504,7 @@ ParentRecord::ProcessParents(char *val, bool isPrimary)
       this->secondary_parents[i].name                    = this->secondary_parents[i].hostname;
       this->secondary_parents[i].available               = true;
       this->secondary_parents[i].weight                  = weight;
+      hs.createHostStat(this->secondary_parents[i].hostname);
     }
   }
 
@@ -955,7 +968,6 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
 
 #define REBUILD                                                                                                            \
   do {                                                                                                                     \
-    delete ParentTable;                                                                                                    \
     delete params;                                                                                                         \
     ParentTable = new P_table("", "ParentSelection Unit Test Table", &http_dest_tags,                                      \
                               ALLOW_HOST_TABLE | ALLOW_REGEX_TABLE | ALLOW_URL_TABLE | ALLOW_IP_TABLE | DONT_BUILD_TABLE); \
@@ -1385,6 +1397,149 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
   FP;
   sleep(1);
   RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 183);
+
+  // Test 184
+  // mark fuzzy down with HostStatus API.
+  HostStatus &_st = HostStatus::instance();
+  _st.setHostStatus("fuzzy", HOST_STATUS_DOWN);
+
+  ST(184);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  sleep(1);
+  RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), 184);
+
+  // Test 185
+  // mark fluffy down and expect furry to be chosen
+  _st.setHostStatus("fluffy", HOST_STATUS_DOWN);
+
+  ST(185);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  sleep(1);
+  RE(verify(result, PARENT_SPECIFIED, "furry", 80), 185);
+
+  // Test 186
+  // mark furry and frisky down, fuzzy up and expect fuzzy to be chosen
+  _st.setHostStatus("furry", HOST_STATUS_DOWN);
+  _st.setHostStatus("frisky", HOST_STATUS_DOWN);
+  _st.setHostStatus("fuzzy", HOST_STATUS_UP);
+
+  ST(186);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  sleep(1);
+  RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 186);
+
+  // Test 187
+  // test the HostStatus API with ParentConsistent Hash.
+  tbl[0] = '\0';
+  ST(187);
+  T("dest_domain=rabbit.net parent=fuzzy:80|1.0;fluffy:80|1.0;furry:80|1.0;frisky:80|1.0 "
+    "round_robin=consistent_hash go_direct=false\n");
+  REBUILD;
+
+  // mark all up.
+  _st.setHostStatus("furry", HOST_STATUS_UP);
+  _st.setHostStatus("fluffy", HOST_STATUS_UP);
+  _st.setHostStatus("frisky", HOST_STATUS_UP);
+  _st.setHostStatus("fuzzy", HOST_STATUS_UP);
+
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  sleep(1);
+  RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 187);
+
+  // Test 188
+  // mark fuzzy down and expect fluffy.
+  _st.setHostStatus("fuzzy", HOST_STATUS_DOWN);
+
+  ST(188);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  sleep(1);
+  RE(verify(result, PARENT_SPECIFIED, "frisky", 80), 188);
+
+  // Test 189
+  // mark fuzzy back up and expect fuzzy.
+  _st.setHostStatus("fuzzy", HOST_STATUS_UP);
+
+  ST(189);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  sleep(1);
+  RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 189);
+
+  // Test 190
+  // mark fuzzy back down and set the host status down
+  // then wait for fuzzy to become available.
+  // even though fuzzy becomes retryable we should not select it
+  // because the host status is set to down.
+  params->markParentDown(result, fail_threshold, retry_time);
+  // set host status down
+  _st.setHostStatus("fuzzy", HOST_STATUS_DOWN);
+  // sleep long enough so that fuzzy is retryable
+  sleep(params->policy.ParentRetryTime + 1);
+  ST(190);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  RE(verify(result, PARENT_SPECIFIED, "frisky", 80), 190);
+
+  // now set the host staus on fuzzy to up and it should now
+  // be retried.
+  _st.setHostStatus("fuzzy", HOST_STATUS_UP);
+  ST(191);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 191);
+
+  // Test 192
+  tbl[0] = '\0';
+  ST(192);
+  T("dest_domain=rabbit.net parent=fuzzy:80,fluffy:80,furry:80,frisky:80 round_robin=false go_direct=true\n");
+  REBUILD;
+  // mark all up.
+  _st.setHostStatus("fuzzy", HOST_STATUS_UP);
+  _st.setHostStatus("fluffy", HOST_STATUS_UP);
+  _st.setHostStatus("furry", HOST_STATUS_UP);
+  _st.setHostStatus("frisky", HOST_STATUS_UP);
+  // fuzzy should be chosen.
+  sleep(1);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 192);
+
+  // Test 193
+  // mark fuzzy down and wait for it to become retryable
+  ST(193);
+  params->markParentDown(result, fail_threshold, retry_time);
+  sleep(params->policy.ParentRetryTime + 1);
+  // since the host status is down even though fuzzy is
+  // retryable, fluffy should be chosen
+  _st.setHostStatus("fuzzy", HOST_STATUS_DOWN);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), 193);
+
+  // Test 194
+  // set the host status for fuzzy  back up and since its
+  // retryable fuzzy should be chosen
+  ST(194);
+  _st.setHostStatus("fuzzy", HOST_STATUS_UP);
+  REINIT;
+  br(request, "i.am.rabbit.net");
+  FP;
+  RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), 194);
 
   delete request;
   delete result;

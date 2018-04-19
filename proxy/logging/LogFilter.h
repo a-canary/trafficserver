@@ -21,8 +21,7 @@
   limitations under the License.
  */
 
-#ifndef LOG_FILTER_H
-#define LOG_FILTER_H
+#pragma once
 
 #include "ts/ink_platform.h"
 #include "ts/IpMap.h"
@@ -160,7 +159,7 @@ private:
     // return 0 if s1 is substring of s0 and 1 otherwise
     // this reverse behavior is to conform to the behavior of strcmp
     // which returns 0 if strings match
-    return (strstr(s0, s1) == NULL ? 1 : 0);
+    return (strstr(s0, s1) == nullptr ? 1 : 0);
   }
 
   enum LengthCondition {
@@ -507,5 +506,3 @@ LogFilterString::_checkConditionAndWipe(OperatorFunction f, char **field_value, 
   }
   return retVal;
 }
-
-#endif

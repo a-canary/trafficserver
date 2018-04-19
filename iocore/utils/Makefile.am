@@ -19,7 +19,8 @@
 AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/lib \
   -I$(abs_top_srcdir)/lib/records \
-  -I$(abs_top_srcdir)/iocore/eventsystem
+  -I$(abs_top_srcdir)/iocore/eventsystem \
+  $(TS_INCLUDES)
 
 noinst_LIBRARIES = libinkutils.a
 
@@ -33,5 +34,5 @@ libinkutils_a_SOURCES = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

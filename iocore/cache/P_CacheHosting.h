@@ -21,8 +21,7 @@
   limitations under the License.
  */
 
-#ifndef __P_CACHE_HOSTING_H__
-#define __P_CACHE_HOSTING_H__
+#pragma once
 #include "P_Cache.h"
 #include "ts/MatcherUtils.h"
 #include "ts/HostLookup.h"
@@ -62,7 +61,7 @@ struct CacheHostRecord {
       good_num_vols(0),
       num_vols(0),
       num_initialized(0),
-      vol_hash_table(0),
+      vol_hash_table(nullptr),
       cp(nullptr),
       num_cachevols(0)
   {
@@ -208,5 +207,3 @@ struct ConfigVolumes {
     num_stream_volumes = 0;
   }
 };
-
-#endif

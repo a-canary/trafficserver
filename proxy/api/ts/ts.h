@@ -27,8 +27,7 @@
 
  */
 
-#ifndef __TS_API_H__
-#define __TS_API_H__
+#pragma once
 
 #include <ts/apidefs.h>
 
@@ -1529,6 +1528,8 @@ tsapi void TSHttpTxnArgSet(TSHttpTxn txnp, int arg_idx, void *arg);
 tsapi void *TSHttpTxnArgGet(TSHttpTxn txnp, int arg_idx);
 tsapi void TSHttpSsnArgSet(TSHttpSsn ssnp, int arg_idx, void *arg);
 tsapi void *TSHttpSsnArgGet(TSHttpSsn ssnp, int arg_idx);
+tsapi void TSVConnArgSet(TSVConn connp, int arg_idx, void *arg);
+tsapi void *TSVConnArgGet(TSVConn connp, int arg_idx);
 
 /* The reserve API should only be use in TSAPI plugins, during plugin initialization! */
 /* The lookup methods can be used anytime, but are best used during initialization as well,
@@ -1539,6 +1540,9 @@ tsapi TSReturnCode TSHttpTxnArgIndexLookup(int arg_idx, const char **name, const
 tsapi TSReturnCode TSHttpSsnArgIndexReserve(const char *name, const char *description, int *arg_idx);
 tsapi TSReturnCode TSHttpSsnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
 tsapi TSReturnCode TSHttpSsnArgIndexLookup(int arg_idx, const char **name, const char **description);
+tsapi TSReturnCode TSVConnArgIndexReserve(const char *name, const char *description, int *arg_idx);
+tsapi TSReturnCode TSVConnArgIndexNameLookup(const char *name, int *arg_idx, const char **description);
+tsapi TSReturnCode TSVConnArgIndexLookup(int arg_idx, const char **name, const char **description);
 
 /* ToDo: This is a leftover from olden days, can we eliminate? */
 tsapi void TSHttpTxnSetHttpRetStatus(TSHttpTxn txnp, TSHttpStatus http_retstatus);
@@ -2448,8 +2452,23 @@ tsapi const char *TSHttpSsnClientProtocolStackContains(TSHttpSsn ssnp, char cons
 tsapi const char *TSNormalizedProtocolTag(char const *tag);
 tsapi const char *TSRegisterProtocolTag(char const *tag);
 
+// If, for the given transaction, the URL has been remapped, this function puts the memory location of the "from" URL object in the
+// variable pointed to by urlLocp, and returns TS_SUCCESS.  (The URL object will be within memory allocated to the transaction
+// object.)  Otherwise, the function returns TS_ERROR.
+//
+tsapi TSReturnCode TSRemapFromUrlGet(TSHttpTxn txnp, TSMLoc *urlLocp);
+
+// If, for the given transaction, the URL has been remapped, this function puts the memory location of the "to" URL object in the
+// variable pointed to by urlLocp, and returns TS_SUCCESS.  (The URL object will be within memory allocated to the transaction
+// object.)  Otherwise, the function returns TS_ERROR.
+//
+tsapi TSReturnCode TSRemapToUrlGet(TSHttpTxn txnp, TSMLoc *urlLocp);
+
+/*
+ * Get a TSIOBufferReader to read the buffered body. The return value needs to be freed.
+ */
+tsapi TSIOBufferReader TSHttpTxnPostBufferReaderGet(TSHttpTxn txnp);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* __TS_API_H__ */

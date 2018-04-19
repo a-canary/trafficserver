@@ -24,7 +24,8 @@ AM_CFLAGS += @FLEX_CFLAGS@
 AM_YFLAGS = --yacc -d -p tsconfig
 
 AM_CPPFLAGS += \
-  -I$(abs_top_srcdir)/lib
+  -I$(abs_top_srcdir)/lib \
+  $(TS_INCLUDES)
 
 BUILT_SOURCES = \
   TsConfigGrammar.hpp
@@ -73,5 +74,5 @@ TsConfigGrammar.hpp: TsConfigGrammar.h BisonHeaderToC++.sed
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

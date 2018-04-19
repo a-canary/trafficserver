@@ -27,7 +27,8 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/mgmt/utils \
   -I$(abs_top_srcdir)/proxy/hdrs \
   -I$(abs_top_srcdir)/proxy/shared \
-  -I$(abs_top_srcdir)/proxy/http
+  -I$(abs_top_srcdir)/proxy/http \
+  $(TS_INCLUDES)
 
 noinst_LIBRARIES = libhttp_remap.a
 
@@ -49,5 +50,5 @@ libhttp_remap_a_SOURCES = \
   UrlRewrite.cc \
   UrlRewrite.h
 
-tidy-local: $(libhttp_remap_a_SOURCES)
+clang-tidy-local: $(libhttp_remap_a_SOURCES)
 	$(CXX_Clang_Tidy)

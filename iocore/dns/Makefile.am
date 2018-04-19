@@ -24,7 +24,8 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/proxy/http \
   -I$(abs_top_srcdir)/proxy/hdrs \
   -I$(abs_top_srcdir)/mgmt \
-  -I$(abs_top_srcdir)/mgmt/utils
+  -I$(abs_top_srcdir)/mgmt/utils \
+  $(TS_INCLUDES)
 
 noinst_LIBRARIES = libinkdns.a
 
@@ -50,5 +51,5 @@ libinkdns_a_SOURCES = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

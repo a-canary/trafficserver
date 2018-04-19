@@ -20,12 +20,14 @@
     limitations under the License.
  */
 
-#if !defined CRYPTO_HASH_HEADER
-#define CRYPTO_HASH_HEADER
+#pragma once
+
+#include <ts/BufferWriter.h>
+#include <ts/string_view.h>
 
 /// Apache Traffic Server commons.
 
-#ifdef TS_ENABLE_FIPS
+#if TS_ENABLE_FIPS == 1
 // #include "ts/SHA256.h"
 #define CRYPTO_HASH_SIZE (256 / 8)
 #else
@@ -97,7 +99,7 @@ union CryptoHash {
   }
 
   /// Fast conversion to hex in fixed sized string.
-  char *toHexStr(char buffer[(CRYPTO_HASH_SIZE * 2) + 1]);
+  char *toHexStr(char buffer[(CRYPTO_HASH_SIZE * 2) + 1]) const;
 };
 
 extern CryptoHash const CRYPTO_HASH_ZERO;
@@ -149,7 +151,7 @@ public:
 
   enum HashType {
     UNSPECIFIED,
-#ifndef TS_ENABLE_FIPS
+#if TS_ENABLE_FIPS == 0
     MD5,
     MMH,
 #endif
@@ -178,8 +180,18 @@ CryptoContext::finalize(CryptoHash &hash)
 
 } // end namespace
 
+namespace ts
+{
+inline BufferWriter &
+bwformat(BufferWriter &w, BWFSpec const &spec, ats::CryptoHash const &hash)
+{
+  BWFSpec local_spec{spec};
+  if ('X' != local_spec._type)
+    local_spec._type = 'x';
+  return bwformat(w, local_spec, ts::string_view(reinterpret_cast<const char *>(hash.u8), CRYPTO_HASH_SIZE));
+}
+} // ts
+
 using ats::CryptoHash;
 using ats::CryptoContext;
 using ats::CRYPTO_HASH_ZERO;
-
-#endif // CRYPTO_HASH_HEADER

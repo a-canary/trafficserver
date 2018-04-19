@@ -22,7 +22,8 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/lib \
   -I$(abs_top_srcdir)/lib/records \
   -I$(abs_top_srcdir)/mgmt \
-  -I$(abs_top_srcdir)/mgmt/api/include
+  -I$(abs_top_srcdir)/mgmt/api/include \
+  $(TS_INCLUDES)
 
 bin_PROGRAMS = traffic_ctl
 
@@ -33,6 +34,7 @@ traffic_ctl_SOURCES = \
   plugin.cc \
   server.cc \
   storage.cc \
+  host.cc \
   traffic_ctl.cc
 
 traffic_ctl_LDADD = \
@@ -46,5 +48,5 @@ traffic_ctl_LDADD = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

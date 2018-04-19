@@ -26,6 +26,7 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/proxy \
   -I$(abs_top_srcdir)/lib/records \
   -I$(abs_top_srcdir)/lib \
+  $(TS_INCLUDES) \
   @OPENSSL_INCLUDES@
 
 # header files used by other libraries
@@ -65,5 +66,5 @@ test_marshall_LDADD = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

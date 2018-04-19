@@ -21,14 +21,11 @@
   limitations under the License.
  */
 
-#ifndef _INK_MD5_h_
-#define _INK_MD5_h_
+#pragma once
 
 #include "ts/ink_code.h"
 #include "ts/ink_defs.h"
 #include "ts/CryptoHash.h"
-
-#ifndef TS_ENABLE_FIPS
 
 class MD5Context : public ats::CryptoContextBase
 {
@@ -44,6 +41,3 @@ public:
 };
 
 typedef CryptoHash INK_MD5;
-#endif
-
-#endif

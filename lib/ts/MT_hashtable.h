@@ -29,8 +29,7 @@
 
 
  ****************************************************************************/
-#ifndef MT_HASHTABLE_H_
-#define MT_HASHTABLE_H_
+#pragma once
 
 #define MT_HASHTABLE_PARTITION_BITS 6
 #define MT_HASHTABLE_PARTITIONS (1 << MT_HASHTABLE_PARTITION_BITS)
@@ -78,7 +77,7 @@ public:
 template <class key_t, class data_t> class IMTHashTable
 {
 public:
-  IMTHashTable(int size, bool (*gc_func)(data_t) = NULL, void (*pre_gc_func)(void) = NULL)
+  IMTHashTable(int size, bool (*gc_func)(data_t) = NULL, void (*pre_gc_func)(void) = nullptr)
   {
     m_gc_func     = gc_func;
     m_pre_gc_func = pre_gc_func;
@@ -329,7 +328,7 @@ IMTHashTable<key_t, data_t>::remove_entry(HashTableIteratorState<key_t, data_t> 
 template <class key_t, class data_t> class MTHashTable
 {
 public:
-  MTHashTable(int size, bool (*gc_func)(data_t) = NULL, void (*pre_gc_func)(void) = NULL)
+  MTHashTable(int size, bool (*gc_func)(data_t) = NULL, void (*pre_gc_func)(void) = nullptr)
   {
     for (int i = 0; i < MT_HASHTABLE_PARTITIONS; i++) {
       locks[i]      = new_ProxyMutex();
@@ -428,5 +427,3 @@ private:
   // int last_GC_time[MT_HASHTABLE_PARTITIONS];
   // int32_t cur_items;
 };
-
-#endif /* MT_HASHTABLE_H_ */

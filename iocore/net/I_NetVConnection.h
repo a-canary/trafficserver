@@ -22,8 +22,7 @@
 
  */
 
-#ifndef __NETVCONNECTION_H__
-#define __NETVCONNECTION_H__
+#pragma once
 
 #include "ts/ink_inet.h"
 #include "I_Action.h"
@@ -223,7 +222,7 @@ struct NetVCOptions {
     if (&that != this) {
       sni_servername    = nullptr; // release any current name.
       clientCertificate = nullptr;
-      memcpy(this, &that, sizeof(self));
+      memcpy(static_cast<void *>(this), &that, sizeof(self));
       if (that.sni_servername) {
         sni_servername.release(); // otherwise we'll free the source string.
         this->sni_servername = ats_strdup(that.sni_servername);
@@ -258,7 +257,7 @@ struct NetVCOptions {
   stream IO to be done based on a single read or write call.
 
 */
-class NetVConnection : public VConnection
+class NetVConnection : public AnnotatedVConnection
 {
 public:
   // How many bytes have been queued to the OS for sending by haven't been sent yet
@@ -661,7 +660,7 @@ protected:
 };
 
 inline NetVConnection::NetVConnection()
-  : VConnection(nullptr),
+  : AnnotatedVConnection(nullptr),
     attributes(0),
     thread(nullptr),
     got_local_addr(0),
@@ -680,5 +679,3 @@ NetVConnection::trapWriteBufferEmpty(int event)
 {
   write_buffer_empty_event = event;
 }
-
-#endif

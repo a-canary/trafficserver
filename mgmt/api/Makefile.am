@@ -28,6 +28,7 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/mgmt/utils \
   -I$(abs_top_srcdir)/mgmt/api/include \
   -I$(abs_top_srcdir)/lib \
+  $(TS_INCLUDES) \
   $(LIBUNWIND_CFLAGS)
 
 noinst_LTLIBRARIES = libmgmtapilocal.la libmgmtapi.la
@@ -83,5 +84,5 @@ traffic_api_cli_remote_LDADD = \
   $(top_builddir)/lib/ts/libtsutil.la \
   @LIBTCL@ @OPENSSL_LIBS@
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

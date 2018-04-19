@@ -1,6 +1,3 @@
-#if !defined TS_BUFFER_HEADER
-#define TS_BUFFER_HEADER
-
 /** @file
     Definitions for a buffer type, to carry a reference to a chunk of memory.
 
@@ -25,6 +22,8 @@
     See the License for the specific language governing permissions and
     limitations under the License.
  */
+
+#pragma once
 
 #if defined _MSC_VER
 #include <stddef.h>
@@ -306,7 +305,7 @@ inline Buffer::Buffer(char *start, char *end) : _ptr(start), _size(end - start)
 inline Buffer &
 Buffer::reset()
 {
-  _ptr  = 0;
+  _ptr  = nullptr;
   _size = 0;
   return *this;
 }
@@ -336,7 +335,7 @@ inline bool Buffer::operator!() const
 }
 inline Buffer::operator pseudo_bool() const
 {
-  return _ptr && _size ? &self::operator! : 0;
+  return _ptr && _size ? &self::operator! : nullptr;
 }
 inline char Buffer::operator*() const
 {
@@ -390,7 +389,7 @@ ConstBuffer::set(char const *start, char const *end)
 inline ConstBuffer &
 ConstBuffer::reset()
 {
-  _ptr  = 0;
+  _ptr  = nullptr;
   _size = 0;
   return *this;
 }
@@ -427,7 +426,7 @@ inline bool ConstBuffer::operator!() const
 }
 inline ConstBuffer::operator pseudo_bool() const
 {
-  return _ptr && _size ? &self::operator! : 0;
+  return _ptr && _size ? &self::operator! : nullptr;
 }
 inline char ConstBuffer::operator*() const
 {
@@ -514,5 +513,3 @@ ConstBuffer::clip(char const *p)
 
 typedef ts::Buffer TsBuffer;
 typedef ts::ConstBuffer TsConstBuffer;
-
-#endif // TS_BUFFER_HEADER

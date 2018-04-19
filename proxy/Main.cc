@@ -81,6 +81,7 @@ extern "C" int plock(int);
 #include "CacheControl.h"
 #include "IPAllow.h"
 #include "ParentSelection.h"
+#include "HostStatus.h"
 #include "MgmtUtils.h"
 #include "StatPages.h"
 #include "HTTP.h"
@@ -123,6 +124,7 @@ extern "C" int plock(int);
 static const long MAX_LOGIN = ink_login_name_max();
 
 static void *mgmt_restart_shutdown_callback(void *, char *, int data_len);
+static void *mgmt_drain_callback(void *, char *, int data_len);
 static void *mgmt_storage_device_cmd_callback(void *x, char *data, int len);
 static void *mgmt_lifecycle_msg_callback(void *x, char *data, int len);
 static void init_ssl_ctx_callback(void *ctx, bool server);
@@ -280,9 +282,8 @@ public:
       signal_received[SIGINT]  = false;
 
       RecInt timeout = 0;
-      if (RecGetRecordInt("proxy.config.stop.shutdown_timeout", &timeout) == REC_ERR_OKAY && timeout &&
-          !http_client_session_draining) {
-        http_client_session_draining = true;
+      if (RecGetRecordInt("proxy.config.stop.shutdown_timeout", &timeout) == REC_ERR_OKAY && timeout) {
+        RecSetRecordInt("proxy.node.config.draining", 1, REC_SOURCE_DEFAULT);
         if (!remote_management_flag) {
           // Close listening sockets here only if TS is running standalone
           RecInt close_sockets = 0;
@@ -444,10 +445,11 @@ private:
 void
 set_debug_ip(const char *ip_string)
 {
-  if (ip_string)
+  if (ip_string) {
     diags->debug_client_ip.load(ip_string);
-  else
+  } else {
     diags->debug_client_ip.invalidate();
+  }
 }
 
 static int
@@ -689,7 +691,7 @@ CB_After_Cache_Init()
 
   start = ink_atomic_swap(&delay_listen_for_cache_p, -1);
 
-#ifndef TS_ENABLE_FIPS
+#if TS_ENABLE_FIPS == 0
   // Check for cache BC after the cache is initialized and before listen, if possible.
   if (cacheProcessor.min_stripe_version.ink_major < CACHE_DB_MAJOR_VERSION) {
     // Versions before 23 need the MMH hash.
@@ -1802,6 +1804,8 @@ main(int /* argc ATS_UNUSED */, const char **argv)
   netProcessor.init();
   prep_HttpProxyServer();
 
+  // If num_accept_threads == 0, let the ET_NET threads to set the condition variable,
+  // Else we set it here so when checking the condition variable later it returns immediately.
   if (num_accept_threads == 0) {
     eventProcessor.schedule_spawn(&init_HttpProxyServer, ET_NET);
   } else {
@@ -1837,7 +1841,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     // Translate string to IpAddr
     set_debug_ip(p);
   }
-  REC_RegisterConfigUpdateFunc("proxy.config.diags.debug.client_ip", update_debug_client_ip, NULL);
+  REC_RegisterConfigUpdateFunc("proxy.config.diags.debug.client_ip", update_debug_client_ip, nullptr);
 
   // log initialization moved down
 
@@ -1857,6 +1861,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
     initCacheControl();
     IpAllow::startup();
     ParentConfig::startup();
+    HostStatus::instance();
 #ifdef SPLIT_DNS
     SplitDNSConfig::startup();
 #endif
@@ -1943,16 +1948,26 @@ main(int /* argc ATS_UNUSED */, const char **argv)
       int delay_p = 0;
       REC_ReadConfigInteger(delay_p, "proxy.config.http.wait_for_cache");
 
+      // Check the condition variable.
+      {
+        std::unique_lock<std::mutex> lock(proxyServerMutex);
+        proxyServerCheck.wait(lock, [] { return et_net_threads_ready; });
+      }
+
       // Delay only if config value set and flag value is zero
       // (-1 => cache already initialized)
       if (delay_p && ink_atomic_cas(&delay_listen_for_cache_p, 0, 1)) {
         Debug("http_listen", "Delaying listen, waiting for cache initialization");
       } else {
-        // Use a condition variable to check if we are ready to call
-        // start_HttpProxyServer() when num_accept_threads is set to 0.
-        std::unique_lock<std::mutex> lock(proxyServerMutex);
-        proxyServerCheck.wait(lock, [] { return et_net_threads_ready; });
         start_HttpProxyServer(); // PORTS_READY_HOOK called from in here
+      }
+
+      // Start the back door, since it's just a special HttpProxyServer,
+      // the requirements to start it have been met if we got here.
+      int back_door_port = NO_FD;
+      REC_ReadConfigInteger(back_door_port, "proxy.config.process_manager.mgmt_port");
+      if (back_door_port != NO_FD) {
+        start_HttpProxyServerBackDoor(back_door_port, !!num_accept_threads); // One accept thread is enough
       }
     }
     SNIConfig::cloneProtoSet();
@@ -1970,6 +1985,7 @@ main(int /* argc ATS_UNUSED */, const char **argv)
 
     pmgmt->registerMgmtCallback(MGMT_EVENT_SHUTDOWN, mgmt_restart_shutdown_callback, nullptr);
     pmgmt->registerMgmtCallback(MGMT_EVENT_RESTART, mgmt_restart_shutdown_callback, nullptr);
+    pmgmt->registerMgmtCallback(MGMT_EVENT_DRAIN, mgmt_drain_callback, nullptr);
 
     // Callback for various storage commands. These all go to the same function so we
     // pass the event code along so it can do the right thing. We cast that to <int> first
@@ -2025,6 +2041,14 @@ static void *
 mgmt_restart_shutdown_callback(void *, char *, int /* data_len ATS_UNUSED */)
 {
   sync_cache_dir_on_shutdown();
+  return nullptr;
+}
+
+static void *
+mgmt_drain_callback(void *, char *arg, int len)
+{
+  ink_assert(len > 1 && (arg[0] == '0' || arg[0] == '1'));
+  RecSetRecordInt("proxy.node.config.draining", arg[0] == '1', REC_SOURCE_DEFAULT);
   return nullptr;
 }
 

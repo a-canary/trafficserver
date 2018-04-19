@@ -19,7 +19,8 @@
 AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/iocore/eventsystem \
   -I$(abs_top_srcdir)/lib \
-  -I$(abs_top_srcdir)/lib/records
+  -I$(abs_top_srcdir)/lib/records \
+  $(TS_INCLUDES)
 
 TESTS = test_AIO.sample
 
@@ -61,5 +62,5 @@ test_AIO_LDADD = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

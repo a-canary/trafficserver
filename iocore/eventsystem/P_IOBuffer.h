@@ -21,8 +21,7 @@
   limitations under the License.
  */
 
-#if !defined(_P_IOBuffer_h)
-#define _P_IOBuffer_h
+#pragma once
 
 #include "ts/ink_platform.h"
 #include "ts/ink_resource.h"
@@ -320,7 +319,7 @@ IOBufferData::dealloc()
       ats_free(_data);
     break;
   }
-  _data       = 0;
+  _data       = nullptr;
   _size_index = BUFFER_SIZE_NOT_ALLOCATED;
   _mem_type   = NO_ALLOC;
 }
@@ -369,12 +368,12 @@ new_IOBufferBlock_internal(
 
 TS_INLINE
 IOBufferBlock::IOBufferBlock()
-  : _start(0),
-    _end(0),
-    _buf_end(0)
+  : _start(nullptr),
+    _end(nullptr),
+    _buf_end(nullptr)
 #ifdef TRACK_BUFFER_USER
     ,
-    _location(0)
+    _location(nullptr)
 #endif
 {
   return;
@@ -579,7 +578,7 @@ TS_INLINE char *
 IOBufferReader::start()
 {
   if (!block) {
-    return 0;
+    return nullptr;
   }
 
   skip_empty_blocks();
@@ -590,7 +589,7 @@ TS_INLINE char *
 IOBufferReader::end()
 {
   if (!block) {
-    return 0;
+    return nullptr;
   }
 
   skip_empty_blocks();
@@ -1037,9 +1036,9 @@ TS_INLINE int
 MIOBuffer::max_block_count()
 {
   int maxb = 0;
-  for (int i = 0; i < MAX_MIOBUFFER_READERS; i++) {
-    if (readers[i].allocated()) {
-      int c = readers[i].block_count();
+  for (auto &reader : readers) {
+    if (reader.allocated()) {
+      int c = reader.block_count();
       if (c > maxb) {
         maxb = c;
       }
@@ -1053,9 +1052,9 @@ MIOBuffer::max_read_avail()
 {
   int64_t s = 0;
   int found = 0;
-  for (int i = 0; i < MAX_MIOBUFFER_READERS; i++) {
-    if (readers[i].allocated()) {
-      int64_t ss = readers[i].read_avail();
+  for (auto &reader : readers) {
+    if (reader.allocated()) {
+      int64_t ss = reader.read_avail();
       if (ss > s) {
         s = ss;
       }
@@ -1161,9 +1160,9 @@ IOBufferReader::dealloc()
 TS_INLINE void
 MIOBuffer::dealloc_all_readers()
 {
-  for (int i = 0; i < MAX_MIOBUFFER_READERS; i++)
-    if (readers[i].allocated())
-      dealloc_reader(&readers[i]);
+  for (auto &reader : readers)
+    if (reader.allocated())
+      dealloc_reader(&reader);
 }
 
 TS_INLINE void
@@ -1203,5 +1202,3 @@ TS_INLINE
 MIOBufferAccessor::~MIOBufferAccessor()
 {
 }
-
-#endif

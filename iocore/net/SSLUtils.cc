@@ -40,6 +40,8 @@
 #include <openssl/rand.h>
 #include <openssl/dh.h>
 #include <openssl/bn.h>
+#include <openssl/engine.h>
+#include <openssl/conf.h>
 #include <unistd.h>
 #include <termios.h>
 #include <vector>
@@ -390,6 +392,18 @@ set_context_cert(SSL *ssl)
   }
 done:
   return retval;
+}
+
+// Callback function for verifying client certificate
+int
+ssl_verify_client_callback(int preverify_ok, X509_STORE_CTX *ctx)
+{
+  Debug("ssl", "Callback: verify client cert");
+  auto *ssl                = static_cast<SSL *>(X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx()));
+  SSLNetVConnection *netvc = SSLNetVCAccess(ssl);
+
+  netvc->callHooks(TS_EVENT_SSL_VERIFY_CLIENT);
+  return SSL_TLSEXT_ERR_OK;
 }
 
 // Use the certificate callback for openssl 1.0.2 and greater
@@ -881,6 +895,22 @@ SSLInitializeLibrary()
 
     SSL_load_error_strings();
     SSL_library_init();
+
+#if TS_USE_TLS_ASYNC
+    if (SSLConfigParams::async_handshake_enabled) {
+      ASYNC_init_thread(0, 0);
+    }
+#endif
+
+    if (SSLConfigParams::engine_conf_file) {
+      ENGINE_load_dynamic();
+
+      OPENSSL_load_builtin_modules();
+      if (CONF_modules_load_file(SSLConfigParams::engine_conf_file, nullptr, 0) <= 0) {
+        Error("FATAL: error loading engine configuration file %s", SSLConfigParams::engine_conf_file);
+        // ERR_print_errors_fp(stderr);
+      }
+    }
 
 #ifdef OPENSSL_FIPS
     // calling FIPS_mode_set() will force FIPS to POST (Power On Self Test)
@@ -1722,7 +1752,7 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
       server_verify_client = SSL_VERIFY_NONE;
       Error("illegal client certification level %d in records.config", server_verify_client);
     }
-    SSL_CTX_set_verify(ctx, server_verify_client, nullptr);
+    SSL_CTX_set_verify(ctx, server_verify_client, ssl_verify_client_callback);
     SSL_CTX_set_verify_depth(ctx, params->verify_depth); // might want to make configurable at some point.
   }
 
@@ -1821,12 +1851,14 @@ SSLInitServerContext(const SSLConfigParams *params, const ssl_user_config *sslMu
   return ctx;
 
 fail:
-  if (digest)
+  if (digest) {
     EVP_MD_CTX_free(digest);
+  }
   SSL_CLEAR_PW_REFERENCES(ctx)
   SSLReleaseContext(ctx);
-  for (auto cert : certList)
+  for (auto cert : certList) {
     X509_free(cert);
+  }
 
   return nullptr;
 }
@@ -1945,8 +1977,8 @@ ssl_store_ssl_context(const SSLConfigParams *params, SSLCertLookup *lookup, cons
     ctx = nullptr;
   }
 
-  for (unsigned int i = 0; i < cert_list.size(); i++) {
-    X509_free(cert_list[i]);
+  for (auto &i : cert_list) {
+    X509_free(i);
   }
 
   return ctx;

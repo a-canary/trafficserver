@@ -21,15 +21,12 @@
   limitations under the License.
  */
 
-#ifndef _INK_MD5_h_
-#define _INK_MD5_h_
+#pragma once
 
 #include "ts/ink_code.h"
 #include "ts/ink_defs.h"
 #include "ts/CryptoHash.h"
 #include <openssl/sha.h>
-
-#ifdef TS_ENABLE_FIPS
 
 class SHA256Context : public ats::CryptoContextBase
 {
@@ -51,6 +48,3 @@ public:
     return SHA256_Final(hash.u8, &_ctx);
   }
 };
-
-#endif
-#endif

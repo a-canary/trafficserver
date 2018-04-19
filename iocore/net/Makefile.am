@@ -27,6 +27,7 @@ AM_CPPFLAGS += \
   -I$(abs_top_srcdir)/mgmt \
   -I$(abs_top_srcdir)/mgmt/utils \
   -I$(abs_top_srcdir)/proxy/http \
+  $(TS_INCLUDES) \
   @OPENSSL_INCLUDES@
 
 TESTS = $(check_PROGRAMS)
@@ -167,5 +168,5 @@ libinknet_a_LIBADD = \
 
 include $(top_srcdir)/build/tidy.mk
 
-tidy-local: $(DIST_SOURCES)
+clang-tidy-local: $(DIST_SOURCES)
 	$(CXX_Clang_Tidy)

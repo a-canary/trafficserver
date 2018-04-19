@@ -24,8 +24,7 @@
 /**
  * Remap plugin processor
 **/
-#if !defined(_REMAPPROCESSOR_h_)
-#define _REMAPPROCESSOR_h_
+#pragma once
 
 #include "I_EventSystem.h"
 #include "RemapPlugins.h"
@@ -45,8 +44,8 @@ class RemapProcessor : public Processor
 public:
   RemapProcessor() : ET_REMAP(0), _use_separate_remap_thread(false) {}
   ~RemapProcessor() {}
-  bool setup_for_remap(HttpTransact::State *s);
-  bool finish_remap(HttpTransact::State *s);
+  bool setup_for_remap(HttpTransact::State *s, UrlRewrite *table);
+  bool finish_remap(HttpTransact::State *s, UrlRewrite *table);
 
   Action *perform_remap(Continuation *cont, HttpTransact::State *s);
   int start(int num_threads, size_t stacksize);
@@ -71,5 +70,3 @@ private:
  * the global remapProcessor that everyone uses
 **/
 extern RemapProcessor remapProcessor;
-
-#endif
