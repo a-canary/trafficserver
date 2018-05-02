@@ -495,7 +495,7 @@ namespace bw_fmt
   /// Generic floating point conversion.
   BufferWriter &Format_Floating(BufferWriter &w, BWFSpec const &spec, double n, bool negative_p);
 
-} // bw_fmt
+} // namespace bw_fmt
 
 /** Compiled BufferWriter format
  */
@@ -636,8 +636,11 @@ bwformat(BufferWriter &w, BWFSpec const &spec, const void *ptr)
 {
   BWFSpec ptr_spec{spec};
   ptr_spec._radix_lead_p = true;
-  if (ptr_spec._type == BWFSpec::DEFAULT_TYPE)
-    ptr_spec._type = 'x'; // if default, switch to hex.
+  if (ptr_spec._type == BWFSpec::DEFAULT_TYPE || ptr_spec._type == 'p') {
+    ptr_spec._type = 'x'; // if default or 'p;, switch to lower hex.
+  } else if (ptr_spec._type == 'P') {
+    ptr_spec._type = 'X'; // P means upper hex, overriding other specializations.
+  }
   return bw_fmt::Format_Integer(w, ptr_spec, reinterpret_cast<intptr_t>(ptr), false);
 }
 

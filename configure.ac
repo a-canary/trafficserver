@@ -1638,6 +1638,7 @@ AC_CHECK_HEADERS([sys/types.h \
                   sys/pset.h \
                   sched.h \
                   pthread.h \
+                  sys/endian.h \
                   machine/endian.h \
                   endian.h \
                   sys/sysinfo.h \
@@ -2083,7 +2084,10 @@ AC_MSG_NOTICE([Build option summary:
     CC:                 $CC
     CXX:                $CXX
     CPP:                $CPP
+    CFLAGS:             $CFLAGS
+    CXXFLAGS:           $CXXFLAGS
     CPPFLAGS:           $CPPFLAGS
+    LDFLAGS:            $LDFLAGS
     AM@&t@_CFLAGS:          $AM_CFLAGS
     AM@&t@_CXXFLAGS:        $AM_CXXFLAGS
     AM@&t@_CPPFLAGS:        $AM_CPPFLAGS

@@ -515,7 +515,7 @@ protected:
   HttpTunnelProducer *setup_transfer_from_transform_to_cache_only();
   void setup_plugin_agents(HttpTunnelProducer *p);
 
-  HttpTransact::StateMachineAction_t last_action = HttpTransact::SM_ACTION_UNDEFINED;
+  HttpTransact::StateMachineAction_t last_action     = HttpTransact::SM_ACTION_UNDEFINED;
   int (HttpSM::*m_last_state)(int event, void *data) = nullptr;
   virtual void set_next_state();
   void call_transact_and_set_next_state(TransactEntryFunc_t f);
@@ -680,14 +680,14 @@ inline void
 HttpSM::txn_hook_append(TSHttpHookID id, INKContInternal *cont)
 {
   api_hooks.append(id, cont);
-  hooks_set = 1;
+  hooks_set = true;
 }
 
 inline void
 HttpSM::txn_hook_prepend(TSHttpHookID id, INKContInternal *cont)
 {
   api_hooks.prepend(id, cont);
-  hooks_set = 1;
+  hooks_set = true;
 }
 
 inline APIHook *

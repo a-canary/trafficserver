@@ -242,9 +242,9 @@ private:
 public:
   LINK(Event, link);
 
-/*-------------------------------------------------------*\
-| UNIX/non-NT Interface                                   |
-\*-------------------------------------------------------*/
+  /*-------------------------------------------------------*\
+  | UNIX/non-NT Interface                                   |
+  \*-------------------------------------------------------*/
 
 #ifdef ONLY_USED_FOR_FIB_AND_BIN_HEAP
   void *node_pointer;
@@ -261,7 +261,7 @@ public:
 #endif
 
 #if defined(__GNUC__)
-  virtual ~Event() {}
+  ~Event() override {}
 #endif
 };
 

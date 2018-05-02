@@ -14,10 +14,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-pkglib_LTLIBRARIES += gzip/gzip.la
-gzip_gzip_la_SOURCES = gzip/gzip.cc gzip/configuration.cc gzip/misc.cc
-
-gzip_gzip_la_LDFLAGS = \
-  $(AM_LDFLAGS) $(LIB_BROTLIENC)
-
-gzip_gzip_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_BROTLIENC)
+grep --text \
+ -e 'HTTP/' \
+ -e '^> X-Ats-Compress-Test:' \
+ -e '^> Accept-Encoding:' \
+ -e '^< Content-' \
+ -e '^< Vary:' \
+ -e '^$'

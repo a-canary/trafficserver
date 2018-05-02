@@ -389,7 +389,7 @@ using OptionBitSet = std::bitset<NUM_OPTIONS>;
 //
 OptionBitSet optStrToBitset(ts::string_view optConfigStr, ts::FixedBufferWriter &error);
 
-} // end HttpForwarded namespace
+} // namespace HttpForwarded
 
 /////////////////////////////////////////////////////////////
 // This is a little helper class, used by the HttpConfigParams
@@ -766,7 +766,7 @@ struct OverridableHttpConfigParams {
 struct HttpConfigParams : public ConfigInfo {
 public:
   HttpConfigParams();
-  ~HttpConfigParams();
+  ~HttpConfigParams() override;
 
   enum {
     CACHE_REQUIRED_HEADERS_NONE                   = 0,
@@ -902,9 +902,7 @@ public:
 //
 /////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////
-inline HttpConfigParams::HttpConfigParams()
-{
-}
+inline HttpConfigParams::HttpConfigParams() {}
 
 inline HttpConfigParams::~HttpConfigParams()
 {

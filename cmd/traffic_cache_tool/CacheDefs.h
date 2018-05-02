@@ -46,7 +46,7 @@ namespace tag
 struct bytes {
   static constexpr char const *const label = " bytes";
 };
-}
+} // namespace tag
 
 using ts::round_down;
 using ts::round_up;
@@ -414,7 +414,7 @@ public:
     password.assign(p_pass, pass_len);
   }
 };
-}
+} // namespace ts
 
 class DFA;
 // this class matches url of the format : scheme://hostname:port/path;params?query
@@ -440,8 +440,9 @@ struct url_matcher {
   uint8_t
   match(const char *hostname) const
   {
-    if (regex.match(hostname) != -1)
+    if (regex.match(hostname) != -1) {
       return 1;
+    }
     //   if(url_with_user.match(hostname) != -1)
     //       return 2;
     return 0;
@@ -449,8 +450,9 @@ struct url_matcher {
   uint8_t
   portmatch(const char *hostname, int length) const
   {
-    if (port.match(hostname, length) != -1)
+    if (port.match(hostname, length) != -1) {
       return 1;
+    }
     //   if(url_with_user.match(hostname) != -1)
     //       return 2;
     return 0;
@@ -618,4 +620,4 @@ struct Stripe {
   void init_dir();
   Errata clear(); // clears striped headers and footers
 };
-} // end ct
+} // namespace ct

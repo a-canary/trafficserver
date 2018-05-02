@@ -165,7 +165,7 @@ public:
 
   SOCKET get_socket() override;
 
-  virtual ~UnixNetVConnection();
+  ~UnixNetVConnection() override;
 
   /////////////////////////////////////////////////////////////////
   // instances of UnixNetVConnection should be allocated         //
@@ -415,9 +415,7 @@ UnixNetVConnection::set_tcp_congestion_control(int side)
 #endif
 }
 
-TS_INLINE UnixNetVConnection::~UnixNetVConnection()
-{
-}
+TS_INLINE UnixNetVConnection::~UnixNetVConnection() {}
 
 TS_INLINE SOCKET
 UnixNetVConnection::get_socket()

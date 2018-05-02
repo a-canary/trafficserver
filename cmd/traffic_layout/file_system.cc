@@ -92,7 +92,7 @@ create_directory(const std::string &dir)
   ret  = mkdir(s.substr(0, pos).c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   pos1 = pos + 1;
   // create directory one layer by one layer
-  while (1) {
+  while (true) {
     pos = s.find("/", pos1);
     if ((size_t)pos == s.npos) {
       break;
@@ -204,7 +204,7 @@ copy_function(const char *src_path, const struct stat *sb, int flag)
       }
     }
     // hardlink bin executable
-    if (sb->st_mode == BIN_MODE) {
+    if (sb->st_mode & S_IEXEC) {
       if (link(src_path, dst_path.c_str()) != 0) {
         if (errno != EEXIST) {
           ink_warning("failed to create hard link - %s", strerror(errno));

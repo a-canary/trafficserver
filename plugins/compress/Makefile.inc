@@ -14,10 +14,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-grep --text \
- -e 'HTTP/' \
- -e '^> X-Ats-Gzip-Test:' \
- -e '^> Accept-Encoding:' \
- -e '^< Content-' \
- -e '^< Vary:' \
- -e '^$'
+pkglib_LTLIBRARIES += compress/compress.la
+compress_compress_la_SOURCES = compress/compress.cc compress/configuration.cc compress/misc.cc
+
+compress_compress_la_LDFLAGS = \
+  $(AM_LDFLAGS) $(LIB_BROTLIENC)
+
+compress_compress_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_BROTLIENC)
