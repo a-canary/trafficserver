@@ -1,0 +1,52 @@
+
+@startuml
+Title HealthCheckPlugin Cycle
+NHAddr -> HCPlugin: poll status
+HCPlugin -> UpdateQueue: request update
+HCPlugin -> UpdateQueue: request update
+HCPlugin -> UpdateQueue: request update
+UpdateQueue -> HttpFetcher: new fetcher
+activate HttpFetcher
+note right
+  Allocate $(min(num_requests,limit)) Fetchers
+end note
+HttpFetcher -> NHAddr: status change
+UpdateQueue <-> HttpFetcher: pop
+HttpFetcher -> NHAddr: status change
+UpdateQueue <-> HttpFetcher: pop
+HttpFetcher -> NHAddr: status change
+UpdateQueue <-> HttpFetcher: pop(empty)
+deactivate HttpFetcher
+@enduml
+
+@startuml
+Title Recusive Resolver Stack
+HttpSM-> TxnResolver: get connection
+activate TxnResolver
+group until successful connection
+  group until successful resolve
+    TxnResolver->PluginResolver: request
+    PluginResolver->PluginResolver: request from children
+    PluginResolver->PluginResolver: resolve to parent
+    PluginResolver->TxnResolver: wait for 'event'
+    hnote over PluginService
+      update
+    end note
+    PluginService-->TxnResolver: 'event'
+  end
+  PluginResolver->TxnResolver: resolve
+  TxnResolver->HttpSM: continue
+  hnote over HttpSM
+    try connection
+  end note
+  HttpSM-->TxnResolver: connection failed
+end
+HttpSM->TxnResolver: connection success
+deactivate TxnResolver
+HttpSM-->PluginService: Txn Events
+@enduml
+
+@startuml
+[Component] --> Interface1
+[Component] -> Interface2
+@enduml

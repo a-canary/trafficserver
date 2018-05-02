@@ -1971,7 +1971,8 @@ iocore_include_dirs="\
 -I\$(abs_top_srcdir)/iocore/hostdb \
 -I\$(abs_top_srcdir)/iocore/cache \
 -I\$(abs_top_srcdir)/iocore/utils \
--I\$(abs_top_srcdir)/iocore/dns"
+-I\$(abs_top_srcdir)/iocore/dns \
+-I\$(abs_top_srcdir)/iocore/nexthop"
 
 # Flags for buildit LuaJIT itself. We take the latest version
 # of the generic flags, plus any Lua-specific flags so that we
@@ -2029,6 +2030,7 @@ AC_CONFIG_FILES([
   iocore/dns/Makefile
   iocore/eventsystem/Makefile
   iocore/hostdb/Makefile
+  iocore/nexthop/Makefile
   iocore/net/Makefile
   iocore/utils/Makefile
   lib/Makefile

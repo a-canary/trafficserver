@@ -195,6 +195,7 @@ traffic_server_LDADD = \
   $(top_builddir)/iocore/dns/libinkdns.a \
   $(top_builddir)/iocore/cache/libinkcache.a \
   $(top_builddir)/iocore/aio/libinkaio.a \
+  $(top_builddir)/iocore/nexthop/libtsnexthop.a \
   $(top_builddir)/lib/ts/libtsutil.la \
   $(top_builddir)/lib/bindings/libbindings.la
 
