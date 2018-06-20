@@ -205,6 +205,15 @@ AC_ARG_ENABLE([asan],
 )
 AC_MSG_RESULT([$enable_asan])
 
+# Enable LSAN in stand-alone mode for the builds
+AC_MSG_CHECKING([whether to enable lsan])
+AC_ARG_ENABLE([lsan],
+  [AS_HELP_STRING([--enable-lsan],[enable stand-alone Leak Sanitizer])],
+  [],
+  [enable_lsan=no]
+)
+AC_MSG_RESULT([$enable_lsan])
+
 # Enable TSAN for the builds
 AC_MSG_CHECKING([whether to enable tsan])
 AC_ARG_ENABLE([tsan],
@@ -980,6 +989,15 @@ if test "x${enable_asan}" = "xyes"; then
   fi
   TS_ADDTO(AM_CFLAGS, [-fno-omit-frame-pointer -fsanitize=address])
   TS_ADDTO(AM_CXXFLAGS, [-fno-omit-frame-pointer -fsanitize=address])
+fi
+
+# Flags for LSAN stand-alone mode
+if test "x${enable_lsan}" = "xyes"; then
+  if test "x${enable_asan}" = "xyes"; then
+    AC_ERROR([ASAN already specified, --enable-lsan is meant only for lsan stand-alone mode])
+  fi
+  TS_ADDTO(AM_CFLAGS, [-fno-omit-frame-pointer -fsanitize=leak])
+  TS_ADDTO(AM_CXXFLAGS, [-fno-omit-frame-pointer -fsanitize=leak])
 fi
 
 # Flags for TSAN
@@ -1972,7 +1990,8 @@ iocore_include_dirs="\
 -I\$(abs_top_srcdir)/iocore/hostdb \
 -I\$(abs_top_srcdir)/iocore/cache \
 -I\$(abs_top_srcdir)/iocore/utils \
--I\$(abs_top_srcdir)/iocore/dns"
+-I\$(abs_top_srcdir)/iocore/dns \
+-I\$(abs_top_srcdir)/iocore/nexthop"
 
 # Flags for buildit LuaJIT itself. We take the latest version
 # of the generic flags, plus any Lua-specific flags so that we
@@ -2012,7 +2031,6 @@ AC_CONFIG_FILES([
   Makefile
   cmd/Makefile
   cmd/traffic_cache_tool/Makefile
-  cmd/traffic_cop/Makefile
   cmd/traffic_crashlog/Makefile
   cmd/traffic_ctl/Makefile
   cmd/traffic_layout/Makefile
@@ -2030,6 +2048,7 @@ AC_CONFIG_FILES([
   iocore/dns/Makefile
   iocore/eventsystem/Makefile
   iocore/hostdb/Makefile
+  iocore/nexthop/Makefile
   iocore/net/Makefile
   iocore/utils/Makefile
   lib/Makefile
@@ -2055,7 +2074,6 @@ AC_CONFIG_FILES([
   proxy/config/body_factory/default/Makefile
   proxy/config/records.config.default
   proxy/config/storage.config.default
-  proxy/congest/Makefile
   proxy/hdrs/Makefile
   proxy/http/Makefile
   proxy/http/remap/Makefile
