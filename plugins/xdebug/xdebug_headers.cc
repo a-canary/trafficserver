@@ -21,11 +21,51 @@
 #include <stdio.h>
 #include <cstdio>
 #include <strings.h>
+#include <string_view>
 #include <sstream>
 #include <cstring>
 #include <getopt.h>
 
 #define DEBUG_TAG_LOG_HEADERS "xdebug.headers"
+
+std::string_view
+escape_char_for_json(char const &c, bool &parsing_key)
+{
+  switch (c) {
+  case '\'':
+    return {"\\\'"};
+  case '"':
+    return {"\\\""};
+  case '\\':
+    return {"\\\\"};
+  case '\b':
+    return {"\\b"};
+  case '\f':
+    return {"\\f"};
+  case '\t':
+    return {"\\t"};
+
+  // Special header reformating
+  case '\r':
+    return {""};
+  case '\n':
+    parsing_key = true;
+    return {"',\r\n\t'"}; // replace new line with pair delemiter
+  case ':':
+    if (parsing_key) {
+      return {"' : "}; // replace colon after keywith quote + colon
+    }
+    return {":"};
+  case ' ':
+    if (parsing_key) {
+      parsing_key = false;
+      return {"'"}; // replace first space after the key to be a quote
+    }
+    return {" "};
+  default:
+    return {&c, 1};
+  }
+}
 
 ///////////////////////////////////////////////////////////////////////////
 // Dump a header on stderr, useful together with TSDebug().
@@ -37,10 +77,12 @@ print_headers(TSHttpTxn txn, TSMBuffer bufp, TSMLoc hdr_loc, std::stringstream &
   TSIOBufferBlock block;
   const char *block_start;
   int64_t block_avail;
+  bool parsing_key    = true;
+  size_t print_rewind = ss.str().length();
+  output_buffer       = TSIOBufferCreate();
+  reader              = TSIOBufferReaderAlloc(output_buffer);
 
-  output_buffer = TSIOBufferCreate();
-  reader        = TSIOBufferReaderAlloc(output_buffer);
-
+  ss << "\t'";
   /* This will print just MIMEFields and not the http request line */
   TSMimeHdrPrint(bufp, hdr_loc, output_buffer);
 
@@ -48,12 +90,18 @@ print_headers(TSHttpTxn txn, TSMBuffer bufp, TSMLoc hdr_loc, std::stringstream &
   block = TSIOBufferReaderStart(reader);
   do {
     block_start = TSIOBufferBlockReadStart(block, reader, &block_avail);
-    if (block_avail > 0) {
-      ss << std::string(block_start, static_cast<int>(block_avail)) << std::endl;
+    for (const char *c = block_start; c < block_start + block_avail; ++c) {
+      bool was_parsing_key = parsing_key;
+      ss << escape_char_for_json(*c, parsing_key);
+      if (parsing_key && !was_parsing_key) {
+        print_rewind = ss.str().length() - 1;
+      }
     }
     TSIOBufferReaderConsume(reader, block_avail);
     block = TSIOBufferReaderStart(reader);
   } while (block && block_avail != 0);
+
+  ss.seekp(print_rewind);
 
   /* Free up the TSIOBuffer that we used to print out the header */
   TSIOBufferReaderFree(reader);
@@ -77,21 +125,18 @@ print_request_headers(TSHttpTxn txn, std::stringstream &output)
 {
   TSMBuffer buf_c, buf_s;
   TSMLoc hdr_loc;
-
-  output << "<RequestHeaders>\n";
   if (TSHttpTxnClientReqGet(txn, &buf_c, &hdr_loc) == TS_SUCCESS) {
-    output << "<Client>\n";
+    output << "{'type':'request', 'side':'client', 'headers': {\n";
     print_headers(txn, buf_c, hdr_loc, output);
-    output << "</Client>\n";
+    output << "}}";
     TSHandleMLocRelease(buf_c, TS_NULL_MLOC, hdr_loc);
   }
   if (TSHttpTxnServerReqGet(txn, &buf_s, &hdr_loc) == TS_SUCCESS) {
-    output << "<Server>\n";
+    output << ",{'type':'request', 'side':'server', 'headers': {\n";
     print_headers(txn, buf_s, hdr_loc, output);
-    output << "</Server>\n";
+    output << "}}";
     TSHandleMLocRelease(buf_s, TS_NULL_MLOC, hdr_loc);
   }
-  output << "</RequestHeaders>\n";
 }
 
 void
@@ -99,19 +144,16 @@ print_response_headers(TSHttpTxn txn, std::stringstream &output)
 {
   TSMBuffer buf_c, buf_s;
   TSMLoc hdr_loc;
-
-  output << "<ResponseHeaders>\n";
   if (TSHttpTxnServerRespGet(txn, &buf_s, &hdr_loc) == TS_SUCCESS) {
-    output << "<Server>\n";
+    output << "{'type':'response', 'side':'server', 'headers': {\n";
     print_headers(txn, buf_s, hdr_loc, output);
-    output << "</Server>\n";
+    output << "}},";
     TSHandleMLocRelease(buf_s, TS_NULL_MLOC, hdr_loc);
   }
   if (TSHttpTxnClientRespGet(txn, &buf_c, &hdr_loc) == TS_SUCCESS) {
-    output << "<Client>\n";
+    output << "{'type':'response', 'side':'client', 'headers': {\n";
     print_headers(txn, buf_c, hdr_loc, output);
-    output << "</Client>\n";
+    output << "}}";
     TSHandleMLocRelease(buf_c, TS_NULL_MLOC, hdr_loc);
   }
-  output << "</ResponseHeaders>\n";
 }

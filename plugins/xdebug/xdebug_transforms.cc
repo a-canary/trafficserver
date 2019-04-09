@@ -23,6 +23,10 @@
 #include <functional>
 #include <atomic>
 
+#include "ts/ts.h"
+
+static const std::string_view MultipartBoundary{"\r\n--- ATS xDebug Probe Injection Boundary ---\r\n\r\n"};
+
 struct BodyBuilder {
   TSVIO output_vio               = nullptr;
   TSIOBuffer output_buffer       = nullptr;
@@ -42,9 +46,10 @@ static std::string
 getPreBody(TSHttpTxn txn)
 {
   std::stringstream output;
-  output << "\n<!---ATS-XDebug\n<Host><Name>" << Hostname << "</Name>\n";
+  output << "{'xDebugProbeAt' : '" << Hostname << "'\n   'captured':[";
   print_request_headers(txn, output);
-  output << "</Host>\nATS-XDebug---!>\n";
+  output << "\n   ]\n}";
+  output << MultipartBoundary;
   return output.str();
 }
 
@@ -52,9 +57,10 @@ static std::string
 getPostBody(TSHttpTxn txn)
 {
   std::stringstream output;
-  output << "\n<!---ATS-XDebug\n<Host><Name>" << Hostname << "</Name>\n";
+  output << MultipartBoundary;
+  output << "{'xDebugProbeAt' : '" << Hostname << "'\n   'captured':[";
   print_response_headers(txn, output);
-  output << "</Host>\nATS-XDebug---!>\n";
+  output << "\n   ]\n}";
   return output.str();
 }
 
@@ -100,7 +106,7 @@ body_transform(TSCont contp, TSEvent event, void *edata)
   }
   case TS_EVENT_VCONN_WRITE_READY:
     TSDebug("xdebug_transform", "body_transform(): Event is TS_EVENT_VCONN_WRITE_READY");
-    // fallthru
+  // fallthru
   default:
     if (!data->output_buffer) {
       data->output_buffer = TSIOBufferCreate();
