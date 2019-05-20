@@ -46,13 +46,13 @@ extern ink_mutex debug_cs_list_mutex;
 class HttpSM;
 class HttpServerSession;
 
-class Http1ClientSession : public ProxyClientSession
+class Http1ClientSession : public ProxySession
 {
 public:
-  typedef ProxyClientSession super; ///< Parent type.
+  typedef ProxySession super; ///< Parent type.
   Http1ClientSession();
 
-  // Implement ProxyClientSession interface.
+  // Implement ProxySession interface.
   void destroy() override;
   void free() override;
   void release_transaction();

@@ -195,14 +195,14 @@ public:
 
   virtual void transaction_done() = 0;
 
-  ProxyClientSession *
+  ProxySession *
   get_parent()
   {
     return parent;
   }
 
   virtual void
-  set_parent(ProxyClientSession *new_parent)
+  set_parent(ProxySession *new_parent)
   {
     parent         = new_parent;
     host_res_style = parent->host_res_style;
@@ -266,9 +266,9 @@ public:
   virtual void decrement_client_transactions_stat() = 0;
 
 protected:
-  ProxyClientSession *parent = nullptr;
-  HttpSM *current_reader     = nullptr;
-  IOBufferReader *sm_reader  = nullptr;
+  ProxySession *parent      = nullptr;
+  HttpSM *current_reader    = nullptr;
+  IOBufferReader *sm_reader = nullptr;
 
   /// DNS resolution preferences.
   HostResStyle host_res_style = HOST_RES_NONE;

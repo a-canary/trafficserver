@@ -1,6 +1,6 @@
 /** @file
 
-  ProxyClientSession - Base class for protocol client sessions.
+  ProxySession - Base class for protocol client sessions.
 
   @section license License
 
@@ -71,10 +71,10 @@ struct ProxyError {
 };
 
 /// Abstract class for HttpSM to interface with any session
-class ProxyClientSession : public VConnection
+class ProxySession : public VConnection
 {
 public:
-  ProxyClientSession();
+  ProxySession();
 
   virtual void destroy() = 0;
   virtual void free();
@@ -295,8 +295,8 @@ public:
   ink_hrtime ssn_last_txn_time = 0;
 
   // noncopyable
-  ProxyClientSession(ProxyClientSession &) = delete;
-  ProxyClientSession &operator=(const ProxyClientSession &) = delete;
+  ProxySession(ProxySession &) = delete;
+  ProxySession &operator=(const ProxySession &) = delete;
 
 protected:
   // XXX Consider using a bitwise flags variable for the following flags, so

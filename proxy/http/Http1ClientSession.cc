@@ -143,7 +143,7 @@ Http1ClientSession::new_connection(NetVConnection *new_vc, MIOBuffer *iobuf, IOB
   ink_assert(lock.is_locked());
 
   // Unique client session identifier.
-  con_id = ProxyClientSession::next_connection_id();
+  con_id = ProxySession::next_connection_id();
 
   schedule_event = nullptr;
 

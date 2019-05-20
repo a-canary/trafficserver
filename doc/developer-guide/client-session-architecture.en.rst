@@ -27,20 +27,20 @@ The User Agent interacts with ATS by creating a session with the ATS server and
 submitting sequences of requests over the session. ATS supports several session protocols including
 HTTP/1.x and HTTP/2. A HTTP State Machine is created for each request to process the request.
 
-ATS uses the generic classes ProxyClientSession and ProxyTransaction to hide the details of
+ATS uses the generic classes ProxySession and ProxyTransaction to hide the details of
 the underlying protocols from the HTTP State Machine.
 
 Classes
 =======
 
-ProxyClientSession
+ProxySession
 ------------------
 
 .. figure:: /static/images/sessions/session_hierarchy.png
    :align: center
-   :alt: ProxyClientSession hierarchy
+   :alt: ProxySession hierarchy
 
-The ProxyClientSession class abstracts the key features of a client session.  It contains zero or more ProxyTransaction objects.  It also has a reference to the associated NetVC (either UnixNetVConnection or SSLNetVConnection).  The session class is responsible for interfacing with the user agent protocol.
+The ProxySession class abstracts the key features of a client session.  It contains zero or more ProxyTransaction objects.  It also has a reference to the associated NetVC (either UnixNetVConnection or SSLNetVConnection).  The session class is responsible for interfacing with the user agent protocol.
 
 At this point there are two concrete subclasses: Http1ClientSession and Http2ClientSession.  The Http1ClientSession
 only has at most one transaction active at a time.  The HTTP/2 protocol allows for multiple simultaneous active
@@ -54,7 +54,7 @@ ProxyTransaction
    :alt: ProxyTransaction hierarchy
 
 The ProxyTransaction class abstracts the key features of a client transaction.  It has a reference to its
-parent ProxyClientSession.  One HttpSM is created for each ProxyTransaction.
+parent ProxySession.  One HttpSM is created for each ProxyTransaction.
 
 There are two concrete subclasses: Http1ClientTransaction and Http2Stream.
 
@@ -70,10 +70,10 @@ HTTP/1.x Objects
 
 This diagram shows the relationships between objects created as part of a HTTP/1.x session.  A NetVC
 object performs the basic network level protocols.  The Http1ClientSession object has a reference to the
-associated NetVC object.  The NetVC object is available via the :code:`ProxyClientSession::get_netvc()` method.
+associated NetVC object.  The NetVC object is available via the :code:`ProxySession::get_netvc()` method.
 
 The Http1ClientSession object contains a Http1ClientTransaction object.  For each HTTP request, it calls
-the :code:`ProxyClientSession::new_transaction()` method to instantiate the Http1ClientTransaction object.  With the HTTP/1.x
+the :code:`ProxySession::new_transaction()` method to instantiate the Http1ClientTransaction object.  With the HTTP/1.x
 protocol at most one transaction can be active at a time.
 
 When the Http1ClientTransaction object is instantiated via :code:`ProxyTransaction::new_transaction()` it allocates a

@@ -83,7 +83,7 @@ public:
 
   bool allow_half_open() const override;
 
-  void set_parent(ProxyClientSession *new_parent) override;
+  void set_parent(ProxySession *new_parent) override;
 
   bool
   is_outbound_transparent() const override
