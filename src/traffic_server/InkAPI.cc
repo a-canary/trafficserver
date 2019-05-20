@@ -37,7 +37,7 @@
 #include "URL.h"
 #include "MIME.h"
 #include "HTTP.h"
-#include "ProxyClientSession.h"
+#include "ProxySession.h"
 #include "Http2ClientSession.h"
 #include "HttpServerSession.h"
 #include "HttpSM.h"

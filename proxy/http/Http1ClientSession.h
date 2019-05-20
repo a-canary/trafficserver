@@ -36,7 +36,7 @@
 #include "HTTP.h"
 #include "HttpConfig.h"
 #include "IPAllow.h"
-#include "ProxyClientSession.h"
+#include "ProxySession.h"
 #include "Http1ClientTransaction.h"
 
 #ifdef USE_HTTP_DEBUG_LISTS

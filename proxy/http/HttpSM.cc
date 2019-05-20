@@ -22,7 +22,7 @@
 
  */
 
-#include "../ProxyClientTransaction.h"
+#include "../ProxyTransaction.h"
 #include "HttpSM.h"
 #include "HttpTransact.h"
 #include "HttpTransactHeaders.h"
