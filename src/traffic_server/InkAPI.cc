@@ -39,7 +39,7 @@
 #include "HTTP.h"
 #include "ProxySession.h"
 #include "Http2ClientSession.h"
-#include "HttpServerSession.h"
+#include "Http1ServerSession.h"
 #include "HttpSM.h"
 #include "HttpConfig.h"
 #include "P_Net.h"

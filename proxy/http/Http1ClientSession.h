@@ -37,7 +37,7 @@
 #include "HttpConfig.h"
 #include "IPAllow.h"
 #include "ProxySession.h"
-#include "Http1ClientTransaction.h"
+#include "Http1Transaction.h"
 
 #ifdef USE_HTTP_DEBUG_LISTS
 extern ink_mutex debug_cs_list_mutex;

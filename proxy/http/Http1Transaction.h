@@ -1,6 +1,6 @@
 /** @file
 
-  Http1ClientTransaction.h - The Transaction class for Http1*
+  Http1Transaction.h - The Transaction class for Http1*
 
   @section license License
 

@@ -32,7 +32,7 @@
 
 #include "HttpSessionManager.h"
 #include "../ProxySession.h"
-#include "HttpServerSession.h"
+#include "Http1ServerSession.h"
 #include "HttpSM.h"
 #include "HttpDebugNames.h"
 
