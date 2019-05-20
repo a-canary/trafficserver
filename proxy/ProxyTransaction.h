@@ -1,6 +1,6 @@
 /** @file
 
-  ProxyClientTransaction - Base class for protocol client transactions.
+  ProxyTransaction - Base class for protocol client transactions.
 
   @section license License
 
@@ -28,10 +28,10 @@
 
 class HttpSM;
 class HttpServerSession;
-class ProxyClientTransaction : public VConnection
+class ProxyTransaction : public VConnection
 {
 public:
-  ProxyClientTransaction();
+  ProxyTransaction();
 
   // do_io methods implemented by subclasses
 

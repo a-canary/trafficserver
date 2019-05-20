@@ -37,7 +37,7 @@
 // member function.
 #define SsnDebug(ssn, tag, ...) SpecificDebug((ssn)->debug(), tag, __VA_ARGS__)
 
-class ProxyClientTransaction;
+class ProxyTransaction;
 
 enum class ProxyErrorClass {
   NONE,
@@ -180,7 +180,7 @@ public:
   }
 
   // Indicate we are done with a transaction.
-  virtual void release(ProxyClientTransaction *trans) = 0;
+  virtual void release(ProxyTransaction *trans) = 0;
 
   virtual in_port_t
   get_outbound_port() const

@@ -410,7 +410,7 @@ Http1ClientSession::reenable(VIO *vio)
 
 // Called from the Http1ClientTransaction::release
 void
-Http1ClientSession::release(ProxyClientTransaction *trans)
+Http1ClientSession::release(ProxyTransaction *trans)
 {
   ink_assert(read_state == HCS_ACTIVE_READER || read_state == HCS_INIT);
 

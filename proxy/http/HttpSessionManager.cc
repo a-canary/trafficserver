@@ -275,7 +275,7 @@ HttpSessionManager::purge_keepalives()
 
 HSMresult_t
 HttpSessionManager::acquire_session(Continuation * /* cont ATS_UNUSED */, sockaddr const *ip, const char *hostname,
-                                    ProxyClientTransaction *ua_txn, HttpSM *sm)
+                                    ProxyTransaction *ua_txn, HttpSM *sm)
 {
   HttpServerSession *to_return = nullptr;
   TSServerSessionSharingMatchType match_style =

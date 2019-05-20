@@ -119,7 +119,7 @@ public:
   }
 
   // Indicate we are done with a transaction
-  void release(ProxyClientTransaction *trans) override;
+  void release(ProxyTransaction *trans) override;
 
   void attach_server_session(HttpServerSession *ssession, bool transaction_done = true) override;
 

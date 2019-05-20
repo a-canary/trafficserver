@@ -27,10 +27,10 @@
 
 class Continuation;
 
-class Http1ClientTransaction : public ProxyClientTransaction
+class Http1ClientTransaction : public ProxyTransaction
 {
 public:
-  using super_type = ProxyClientTransaction;
+  using super_type = ProxyTransaction;
 
   Http1ClientTransaction() {}
   // Implement VConnection interface.

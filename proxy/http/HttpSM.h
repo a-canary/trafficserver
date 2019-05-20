@@ -215,7 +215,7 @@ public:
 
   void init();
 
-  void attach_client_session(ProxyClientTransaction *client_vc_arg, IOBufferReader *buffer_reader);
+  void attach_client_session(ProxyTransaction *client_vc_arg, IOBufferReader *buffer_reader);
 
   // Called by httpSessionManager so that we can reset
   //  the session timeouts and initiate a read while
@@ -230,7 +230,7 @@ public:
     return server_session;
   }
 
-  ProxyClientTransaction *
+  ProxyTransaction *
   get_ua_txn()
   {
     return ua_txn;
@@ -350,7 +350,7 @@ protected:
   void remove_ua_entry();
 
 public:
-  ProxyClientTransaction *ua_txn   = nullptr;
+  ProxyTransaction *ua_txn         = nullptr;
   BackgroundFill_t background_fill = BACKGROUND_FILL_NONE;
   // AuthHttpAdapter authAdapter;
   void set_http_schedule(Continuation *);

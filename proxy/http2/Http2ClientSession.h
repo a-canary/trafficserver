@@ -216,7 +216,7 @@ public:
   }
 
   void
-  release(ProxyClientTransaction *trans) override
+  release(ProxyTransaction *trans) override
   {
   }
 

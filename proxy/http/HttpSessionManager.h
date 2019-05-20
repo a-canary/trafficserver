@@ -36,7 +36,7 @@
 #include "Http1ServerSession.h"
 #include "tscore/IntrusiveHashMap.h"
 
-class ProxyClientTransaction;
+class ProxyTransaction;
 class HttpSM;
 
 void initialize_thread_for_http_sessions(EThread *thread, int thread_index);
@@ -103,8 +103,7 @@ class HttpSessionManager
 public:
   HttpSessionManager() {}
   ~HttpSessionManager() {}
-  HSMresult_t acquire_session(Continuation *cont, sockaddr const *addr, const char *hostname, ProxyClientTransaction *ua_txn,
-                              HttpSM *sm);
+  HSMresult_t acquire_session(Continuation *cont, sockaddr const *addr, const char *hostname, ProxyTransaction *ua_txn, HttpSM *sm);
   HSMresult_t release_session(HttpServerSession *to_release);
   void purge_keepalives();
   void init();
