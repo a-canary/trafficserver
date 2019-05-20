@@ -26,7 +26,7 @@
 #include "HttpSM.h"
 
 void
-Http1ClientTransaction::release(IOBufferReader *r)
+Http1Transaction::release(IOBufferReader *r)
 {
   // Must set this inactivity count here rather than in the session because the state machine
   // is not available then
@@ -47,7 +47,7 @@ Http1ClientTransaction::release(IOBufferReader *r)
 }
 
 void
-Http1ClientTransaction::set_parent(ProxySession *new_parent)
+Http1Transaction::set_parent(ProxySession *new_parent)
 {
   Http1ClientSession *http1_parent = dynamic_cast<Http1ClientSession *>(new_parent);
 
@@ -63,7 +63,7 @@ Http1ClientTransaction::set_parent(ProxySession *new_parent)
 }
 
 void
-Http1ClientTransaction::transaction_done()
+Http1Transaction::transaction_done()
 {
   if (parent) {
     static_cast<Http1ClientSession *>(parent)->release_transaction();
@@ -71,7 +71,7 @@ Http1ClientTransaction::transaction_done()
 }
 
 bool
-Http1ClientTransaction::allow_half_open() const
+Http1Transaction::allow_half_open() const
 {
   bool config_allows_it = (current_reader) ? current_reader->t_state.txn_conf->allow_half_open > 0 : true;
   if (config_allows_it) {
@@ -82,13 +82,13 @@ Http1ClientTransaction::allow_half_open() const
 }
 
 void
-Http1ClientTransaction::increment_client_transactions_stat()
+Http1Transaction::increment_client_transactions_stat()
 {
   HTTP_INCREMENT_DYN_STAT(http_current_client_transactions_stat);
 }
 
 void
-Http1ClientTransaction::decrement_client_transactions_stat()
+Http1Transaction::decrement_client_transactions_stat()
 {
   HTTP_DECREMENT_DYN_STAT(http_current_client_transactions_stat);
 }

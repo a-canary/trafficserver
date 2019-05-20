@@ -209,7 +209,7 @@ public:
   /// Transparently pass-through non-HTTP traffic.
   bool f_transparent_passthrough = false;
 
-  Http1ClientTransaction trans;
+  Http1Transaction trans;
 };
 
 extern ClassAllocator<Http1ClientSession> http1ClientSessionAllocator;

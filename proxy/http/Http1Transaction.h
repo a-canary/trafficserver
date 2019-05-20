@@ -27,12 +27,12 @@
 
 class Continuation;
 
-class Http1ClientTransaction : public ProxyTransaction
+class Http1Transaction : public ProxyTransaction
 {
 public:
   using super_type = ProxyTransaction;
 
-  Http1ClientTransaction() {}
+  Http1Transaction() {}
   // Implement VConnection interface.
   VIO *
   do_io_read(Continuation *c, int64_t nbytes = INT64_MAX, MIOBuffer *buf = nullptr) override
@@ -53,7 +53,7 @@ public:
   }
 
   // Don't destroy your elements.  Rely on the Http1ClientSession to clean up the
-  // Http1ClientTransaction class as necessary.  The super::destroy() clears the
+  // Http1Transaction class as necessary.  The super::destroy() clears the
   // mutex, which Http1ClientSession owns.
   void
   destroy() override

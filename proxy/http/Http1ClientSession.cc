@@ -408,7 +408,7 @@ Http1ClientSession::reenable(VIO *vio)
   client_vc->reenable(vio);
 }
 
-// Called from the Http1ClientTransaction::release
+// Called from the Http1Transaction::release
 void
 Http1ClientSession::release(ProxyTransaction *trans)
 {
