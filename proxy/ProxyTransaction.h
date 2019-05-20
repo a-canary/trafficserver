@@ -55,12 +55,6 @@ public:
   // If we reschedule, the scheduled action is returned.  Otherwise, NULL is returned
   Action *adjust_thread(Continuation *cont, int event, void *data);
 
-  int
-  get_transact_count() const
-  {
-    return proxy_ssn ? proxy_ssn->get_transact_count() : 0;
-  }
-
   virtual bool
   is_first_transaction() const
   {

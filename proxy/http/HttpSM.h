@@ -700,7 +700,7 @@ HttpSM::txn_hook_get(TSHttpHookID id)
 inline bool
 HttpSM::is_transparent_passthrough_allowed()
 {
-  return (t_state.client_info.is_transparent && ua_txn->is_transparent_passthrough_allowed() && ua_txn->get_transact_count() == 1);
+  return (t_state.client_info.is_transparent && ua_txn->is_transparent_passthrough_allowed() && ua_txn->is_first_transaction());
 }
 
 inline int64_t

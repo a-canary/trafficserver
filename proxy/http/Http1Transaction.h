@@ -124,7 +124,7 @@ public:
     // presumed not to increase during the lifetime of a transaction, thus this function will return a consistent unique transaction
     // identifier.
     //
-    return get_transact_count();
+    return proxy_ssn->get_transact_count();
   }
 
   void increment_client_transactions_stat() override;
