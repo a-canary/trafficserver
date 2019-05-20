@@ -207,11 +207,11 @@ public:
   }
 
   virtual void
-  attach_server_session(HttpServerSession *ssession, bool transaction_done = true)
+  attach_server_session(Http1ServerSession *ssession, bool transaction_done = true)
   {
   }
 
-  virtual HttpServerSession *
+  virtual Http1ServerSession *
   get_server_session() const
   {
     return nullptr;

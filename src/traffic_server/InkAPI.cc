@@ -4740,7 +4740,7 @@ TSHttpSsnClientVConnGet(TSHttpSsn ssnp)
 TSVConn
 TSHttpSsnServerVConnGet(TSHttpSsn ssnp)
 {
-  HttpServerSession *ss = reinterpret_cast<HttpServerSession *>(ssnp);
+  Http1ServerSession *ss = reinterpret_cast<Http1ServerSession *>(ssnp);
   return reinterpret_cast<TSVConn>(ss->get_netvc());
 }
 
@@ -5514,7 +5514,7 @@ TSHttpTxnOutgoingAddrGet(TSHttpTxn txnp)
 
   HttpSM *sm = reinterpret_cast<HttpSM *>(txnp);
 
-  HttpServerSession *ssn = sm->get_server_session();
+  Http1ServerSession *ssn = sm->get_server_session();
   if (ssn == nullptr) {
     return nullptr;
   }
@@ -5632,7 +5632,7 @@ TSHttpTxnServerPacketMarkSet(TSHttpTxn txnp, int mark)
 
   // change the mark on an active server session
   if (nullptr != sm->ua_txn) {
-    HttpServerSession *ssn = sm->ua_txn->get_server_session();
+    Http1ServerSession *ssn = sm->ua_txn->get_server_session();
     if (nullptr != ssn) {
       NetVConnection *vc = ssn->get_netvc();
       if (vc != nullptr) {
@@ -5674,7 +5674,7 @@ TSHttpTxnServerPacketTosSet(TSHttpTxn txnp, int tos)
 
   // change the tos on an active server session
   if (nullptr != sm->ua_txn) {
-    HttpServerSession *ssn = sm->ua_txn->get_server_session();
+    Http1ServerSession *ssn = sm->ua_txn->get_server_session();
     if (nullptr != ssn) {
       NetVConnection *vc = ssn->get_netvc();
       if (vc != nullptr) {
@@ -5716,7 +5716,7 @@ TSHttpTxnServerPacketDscpSet(TSHttpTxn txnp, int dscp)
 
   // change the tos on an active server session
   if (nullptr != sm->ua_txn) {
-    HttpServerSession *ssn = sm->ua_txn->get_server_session();
+    Http1ServerSession *ssn = sm->ua_txn->get_server_session();
     if (nullptr != ssn) {
       NetVConnection *vc = ssn->get_netvc();
       if (vc != nullptr) {
@@ -7410,7 +7410,7 @@ TSHttpTxnServerFdGet(TSHttpTxn txnp, int *fdp)
   HttpSM *sm = reinterpret_cast<HttpSM *>(txnp);
   *fdp       = -1;
 
-  HttpServerSession *ss = sm->get_server_session();
+  Http1ServerSession *ss = sm->get_server_session();
   if (ss == nullptr) {
     return TS_ERROR;
   }

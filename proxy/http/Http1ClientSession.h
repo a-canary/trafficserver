@@ -44,7 +44,7 @@ extern ink_mutex debug_cs_list_mutex;
 #endif
 
 class HttpSM;
-class HttpServerSession;
+class Http1ServerSession;
 
 class Http1ClientSession : public ProxySession
 {
@@ -121,9 +121,9 @@ public:
   // Indicate we are done with a transaction
   void release(ProxyTransaction *trans) override;
 
-  void attach_server_session(HttpServerSession *ssession, bool transaction_done = true) override;
+  void attach_server_session(Http1ServerSession *ssession, bool transaction_done = true) override;
 
-  HttpServerSession *
+  Http1ServerSession *
   get_server_session() const override
   {
     return bound_ss;
@@ -196,7 +196,7 @@ private:
   VIO *ka_vio       = nullptr;
   VIO *slave_ka_vio = nullptr;
 
-  HttpServerSession *bound_ss = nullptr;
+  Http1ServerSession *bound_ss = nullptr;
 
   int released_transactions = 0;
 

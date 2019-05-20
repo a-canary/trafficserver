@@ -466,7 +466,7 @@ Http1ClientSession::new_transaction()
 }
 
 void
-Http1ClientSession::attach_server_session(HttpServerSession *ssession, bool transaction_done)
+Http1ClientSession::attach_server_session(Http1ServerSession *ssession, bool transaction_done)
 {
   if (ssession) {
     ink_assert(bound_ss == nullptr);

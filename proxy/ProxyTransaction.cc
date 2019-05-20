@@ -68,7 +68,7 @@ ProxyTransaction::release(IOBufferReader *r)
 }
 
 void
-ProxyTransaction::attach_server_session(HttpServerSession *ssession, bool transaction_done)
+ProxyTransaction::attach_server_session(Http1ServerSession *ssession, bool transaction_done)
 {
   parent->attach_server_session(ssession, transaction_done);
 }

@@ -27,7 +27,7 @@
 #include <string_view>
 
 class HttpSM;
-class HttpServerSession;
+class Http1ServerSession;
 class ProxyTransaction : public VConnection
 {
 public:
@@ -47,7 +47,7 @@ public:
   virtual void set_inactivity_timeout(ink_hrtime timeout_in) = 0;
   virtual void cancel_inactivity_timeout()                   = 0;
 
-  virtual void attach_server_session(HttpServerSession *ssession, bool transaction_done = true);
+  virtual void attach_server_session(Http1ServerSession *ssession, bool transaction_done = true);
 
   // See if we need to schedule on the primary thread for the transaction or change the thread that is associated with the VC.
   // If we reschedule, the scheduled action is returned.  Otherwise, NULL is returned
@@ -212,7 +212,7 @@ public:
   {
   }
 
-  HttpServerSession *
+  Http1ServerSession *
   get_server_session() const
   {
     return parent ? parent->get_server_session() : nullptr;
