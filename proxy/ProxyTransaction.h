@@ -1,6 +1,6 @@
 /** @file
 
-  ProxyTransaction - Base class for protocol client transactions.
+  ProxyTransaction - Base class for protocol client/server transactions.
 
   @section license License
 
@@ -28,6 +28,8 @@
 
 class HttpSM;
 class Http1ServerSession;
+
+// Abstract Class for any transaction with-in the HttpSM
 class ProxyTransaction : public VConnection
 {
 public:
@@ -40,7 +42,7 @@ public:
   virtual NetVConnection *
   get_netvc() const
   {
-    return (parent) ? parent->get_netvc() : nullptr;
+    return (proxy_ssn) ? proxy_ssn->get_netvc() : nullptr;
   }
 
   virtual void set_active_timeout(ink_hrtime timeout_in)     = 0;
@@ -56,74 +58,74 @@ public:
   int
   get_transact_count() const
   {
-    return parent ? parent->get_transact_count() : 0;
+    return proxy_ssn ? proxy_ssn->get_transact_count() : 0;
   }
 
   virtual bool
   is_first_transaction() const
   {
-    return get_transact_count() == 1;
+    return proxy_ssn->get_transact_count() == 1;
   }
 
   // Ask your session if this is allowed
   bool
   is_transparent_passthrough_allowed()
   {
-    return parent ? parent->is_transparent_passthrough_allowed() : false;
+    return proxy_ssn ? proxy_ssn->is_transparent_passthrough_allowed() : false;
   }
 
   virtual bool
   is_chunked_encoding_supported() const
   {
-    return parent ? parent->is_chunked_encoding_supported() : false;
+    return proxy_ssn ? proxy_ssn->is_chunked_encoding_supported() : false;
   }
 
   void
   set_half_close_flag(bool flag)
   {
-    if (parent) {
-      parent->set_half_close_flag(flag);
+    if (proxy_ssn) {
+      proxy_ssn->set_half_close_flag(flag);
     }
   }
   virtual bool
   get_half_close_flag() const
   {
-    return parent ? parent->get_half_close_flag() : false;
+    return proxy_ssn ? proxy_ssn->get_half_close_flag() : false;
   }
 
   // What are the debug and hooks_enabled used for?  How are they set?
-  // Just calling through to parent session for now
+  // Just calling through to proxy session for now
   bool
   debug() const
   {
-    return parent ? parent->debug() : false;
+    return proxy_ssn ? proxy_ssn->debug() : false;
   }
 
   APIHook *
   ssn_hook_get(TSHttpHookID id) const
   {
-    return parent ? parent->ssn_hook_get(id) : nullptr;
+    return proxy_ssn ? proxy_ssn->ssn_hook_get(id) : nullptr;
   }
 
   bool
   has_hooks() const
   {
-    return parent->has_hooks();
+    return proxy_ssn->has_hooks();
   }
 
   virtual void
   set_session_active()
   {
-    if (parent) {
-      parent->set_session_active();
+    if (proxy_ssn) {
+      proxy_ssn->set_session_active();
     }
   }
 
   virtual void
   clear_session_active()
   {
-    if (parent) {
-      parent->clear_session_active();
+    if (proxy_ssn) {
+      proxy_ssn->clear_session_active();
     }
   }
 
@@ -142,7 +144,7 @@ public:
   const IpAllow::ACL &
   get_acl() const
   {
-    return parent ? parent->acl : IpAllow::DENY_ALL_ACL;
+    return proxy_ssn ? proxy_ssn->acl : IpAllow::DENY_ALL_ACL;
   }
 
   // Indicate we are done with this transaction
@@ -198,14 +200,14 @@ public:
   ProxySession *
   get_parent()
   {
-    return parent;
+    return proxy_ssn;
   }
 
   virtual void
   set_parent(ProxySession *new_parent)
   {
-    parent         = new_parent;
-    host_res_style = parent->host_res_style;
+    proxy_ssn      = new_parent;
+    host_res_style = proxy_ssn->host_res_style;
   }
   virtual void
   set_h2c_upgrade_flag()
@@ -215,7 +217,7 @@ public:
   Http1ServerSession *
   get_server_session() const
   {
-    return parent ? parent->get_server_session() : nullptr;
+    return proxy_ssn ? proxy_ssn->get_server_session() : nullptr;
   }
 
   HttpSM *
@@ -229,7 +231,7 @@ public:
   virtual const char *
   get_protocol_string()
   {
-    return parent ? parent->get_protocol_string() : nullptr;
+    return proxy_ssn ? proxy_ssn->get_protocol_string() : nullptr;
   }
 
   void
@@ -246,16 +248,16 @@ public:
   virtual int
   populate_protocol(std::string_view *result, int size) const
   {
-    return parent ? parent->populate_protocol(result, size) : 0;
+    return proxy_ssn ? proxy_ssn->populate_protocol(result, size) : 0;
   }
 
   virtual const char *
   protocol_contains(std::string_view tag_prefix) const
   {
-    return parent ? parent->protocol_contains(tag_prefix) : nullptr;
+    return proxy_ssn ? proxy_ssn->protocol_contains(tag_prefix) : nullptr;
   }
 
-  // This function must return a non-negative number that is different for two in-progress transactions with the same parent
+  // This function must return a non-negative number that is different for two in-progress transactions with the same proxy_ssn
   // session.
   //
   virtual int get_transaction_id() const = 0;
@@ -266,18 +268,18 @@ public:
   virtual void decrement_client_transactions_stat() = 0;
 
 protected:
-  ProxySession *parent      = nullptr;
-  HttpSM *current_reader    = nullptr;
-  IOBufferReader *sm_reader = nullptr;
+  ProxySession *proxy_ssn = nullptr;
+  HttpSM *current_reader;
+  IOBufferReader *sm_reader;
 
   /// DNS resolution preferences.
-  HostResStyle host_res_style = HOST_RES_NONE;
+  HostResStyle host_res_style;
   /// Local outbound address control.
   in_port_t outbound_port{0};
   IpAddr outbound_ip4;
   IpAddr outbound_ip6;
 
-  bool restart_immediate = false;
+  bool restart_immediate;
 
 private:
 };

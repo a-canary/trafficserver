@@ -37,18 +37,18 @@ public:
   VIO *
   do_io_read(Continuation *c, int64_t nbytes = INT64_MAX, MIOBuffer *buf = nullptr) override
   {
-    return parent->do_io_read(c, nbytes, buf);
+    return proxy_ssn->do_io_read(c, nbytes, buf);
   }
   VIO *
   do_io_write(Continuation *c = nullptr, int64_t nbytes = INT64_MAX, IOBufferReader *buf = nullptr, bool owner = false) override
   {
-    return parent->do_io_write(c, nbytes, buf, owner);
+    return proxy_ssn->do_io_write(c, nbytes, buf, owner);
   }
 
   void
   do_io_close(int lerrno = -1) override
   {
-    parent->do_io_close(lerrno);
+    proxy_ssn->do_io_close(lerrno);
     // this->destroy(); Parent owns this data structure.  No need for separate destroy.
   }
 
@@ -64,13 +64,13 @@ public:
   void
   do_io_shutdown(ShutdownHowTo_t howto) override
   {
-    parent->do_io_shutdown(howto);
+    proxy_ssn->do_io_shutdown(howto);
   }
 
   void
   reenable(VIO *vio) override
   {
-    parent->reenable(vio);
+    proxy_ssn->reenable(vio);
   }
 
   void
@@ -100,20 +100,20 @@ public:
   void
   set_active_timeout(ink_hrtime timeout_in) override
   {
-    if (parent)
-      parent->set_active_timeout(timeout_in);
+    if (proxy_ssn)
+      proxy_ssn->set_active_timeout(timeout_in);
   }
   void
   set_inactivity_timeout(ink_hrtime timeout_in) override
   {
-    if (parent)
-      parent->set_inactivity_timeout(timeout_in);
+    if (proxy_ssn)
+      proxy_ssn->set_inactivity_timeout(timeout_in);
   }
   void
   cancel_inactivity_timeout() override
   {
-    if (parent)
-      parent->cancel_inactivity_timeout();
+    if (proxy_ssn)
+      proxy_ssn->cancel_inactivity_timeout();
   }
   void transaction_done() override;
 

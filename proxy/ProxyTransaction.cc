@@ -27,7 +27,15 @@
 
 #define HttpTxnDebug(fmt, ...) SsnDebug(this, "http_txn", fmt, __VA_ARGS__)
 
-ProxyTransaction::ProxyTransaction() : VConnection(nullptr) {}
+ProxyTransaction::ProxyTransaction()
+  : VConnection(nullptr),
+    proxy_ssn(nullptr),
+    current_reader(nullptr),
+    sm_reader(nullptr),
+    host_res_style(HOST_RES_NONE),
+    restart_immediate(false)
+{
+}
 
 void
 ProxyTransaction::new_transaction()
@@ -37,11 +45,11 @@ ProxyTransaction::new_transaction()
   // Defensive programming, make sure nothing persists across
   // connection re-use
 
-  ink_release_assert(parent != nullptr);
+  ink_release_assert(proxy_ssn != nullptr);
   current_reader = HttpSM::allocate();
   current_reader->init();
-  HttpTxnDebug("[%" PRId64 "] Starting transaction %d using sm [%" PRId64 "]", parent->connection_id(),
-               parent->get_transact_count(), current_reader->sm_id);
+  HttpTxnDebug("[%" PRId64 "] Starting transaction %d using sm [%" PRId64 "]", proxy_ssn->connection_id(),
+               proxy_ssn->get_transact_count(), current_reader->sm_id);
 
   PluginIdentity *pi = dynamic_cast<PluginIdentity *>(this->get_netvc());
   if (pi) {
@@ -49,28 +57,25 @@ ProxyTransaction::new_transaction()
     current_reader->plugin_id  = pi->getPluginId();
   }
 
-  this->increment_client_transactions_stat();
   current_reader->attach_client_session(this, sm_reader);
 }
 
 void
 ProxyTransaction::release(IOBufferReader *r)
 {
-  HttpTxnDebug("[%" PRId64 "] session released by sm [%" PRId64 "]", parent ? parent->connection_id() : 0,
+  HttpTxnDebug("[%" PRId64 "] session released by sm [%" PRId64 "]", proxy_ssn ? proxy_ssn->connection_id() : 0,
                current_reader ? current_reader->sm_id : 0);
 
-  this->decrement_client_transactions_stat();
-
   // Pass along the release to the session
-  if (parent) {
-    parent->release(this);
+  if (proxy_ssn) {
+    proxy_ssn->release(this);
   }
 }
 
 void
 ProxyTransaction::attach_server_session(Http1ServerSession *ssession, bool transaction_done)
 {
-  parent->attach_server_session(ssession, transaction_done);
+  proxy_ssn->attach_server_session(ssession, transaction_done);
 }
 
 void

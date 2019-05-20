@@ -33,8 +33,8 @@ Http1Transaction::release(IOBufferReader *r)
   MgmtInt ka_in = current_reader->t_state.txn_conf->keep_alive_no_activity_timeout_in;
   set_inactivity_timeout(HRTIME_SECONDS(ka_in));
 
-  parent->clear_session_active();
-  parent->ssn_last_txn_time = Thread::get_hrtime();
+  proxy_ssn->clear_session_active();
+  proxy_ssn->ssn_last_txn_time = Thread::get_hrtime();
 
   // Make sure that the state machine is returning
   //  correct buffer reader
@@ -58,15 +58,15 @@ Http1Transaction::set_parent(ProxySession *new_parent)
     outbound_transparent = http1_parent->f_outbound_transparent;
     super_type::set_parent(new_parent);
   } else {
-    parent = nullptr;
+    proxy_ssn = nullptr;
   }
 }
 
 void
 Http1Transaction::transaction_done()
 {
-  if (parent) {
-    static_cast<Http1ClientSession *>(parent)->release_transaction();
+  if (proxy_ssn) {
+    static_cast<Http1ClientSession *>(proxy_ssn)->release_transaction();
   }
 }
 
@@ -76,7 +76,7 @@ Http1Transaction::allow_half_open() const
   bool config_allows_it = (current_reader) ? current_reader->t_state.txn_conf->allow_half_open > 0 : true;
   if (config_allows_it) {
     // Check with the session to make sure the underlying transport allows the half open scenario
-    return static_cast<Http1ClientSession *>(parent)->allow_half_open();
+    return static_cast<Http1ClientSession *>(proxy_ssn)->allow_half_open();
   }
   return false;
 }
