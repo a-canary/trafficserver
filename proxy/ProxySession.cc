@@ -197,3 +197,181 @@ ProxySession::handle_api_return(int event)
     break;
   }
 }
+
+void *
+
+ProxySession::get_user_arg(unsigned ix) const
+{
+  ink_assert(ix < countof(user_args));
+  return this->user_args[ix];
+}
+
+void
+ProxySession::set_user_arg(unsigned ix, void *arg)
+{
+  ink_assert(ix < countof(user_args));
+  user_args[ix] = arg;
+}
+
+void
+ProxySession::set_debug(bool flag)
+{
+  debug_on = flag;
+}
+
+// Return whether debugging is enabled for this session.
+bool
+ProxySession::debug() const
+{
+  return this->debug_on;
+}
+
+bool
+ProxySession::is_active() const
+{
+  return m_active;
+}
+
+bool
+ProxySession::is_draining() const
+{
+  return TSSystemState::is_draining();
+}
+
+// Override if your session protocol allows this.
+bool
+ProxySession::is_transparent_passthrough_allowed() const
+{
+  return false;
+}
+
+bool
+ProxySession::is_chunked_encoding_supported() const
+{
+  return false;
+}
+
+// Override if your session protocol cares.
+void
+ProxySession::set_half_close_flag(bool flag)
+{
+}
+
+bool
+ProxySession::get_half_close_flag() const
+{
+  return false;
+}
+
+in_port_t
+ProxySession::get_outbound_port() const
+{
+  return outbound_port;
+}
+
+IpAddr
+ProxySession::get_outbound_ip4() const
+{
+  return outbound_ip4;
+}
+
+IpAddr
+ProxySession::get_outbound_ip6() const
+{
+  return outbound_ip6;
+}
+
+int64_t
+ProxySession::connection_id() const
+{
+  return con_id;
+}
+
+void
+ProxySession::attach_server_session(Http1ServerSession *ssession, bool transaction_done)
+{
+}
+
+Http1ServerSession *
+ProxySession::get_server_session() const
+{
+  return nullptr;
+}
+
+TSHttpHookID
+ProxySession::get_hookid() const
+{
+  return api_hookid;
+}
+
+void
+ProxySession::set_active_timeout(ink_hrtime timeout_in)
+{
+}
+
+void
+ProxySession::set_inactivity_timeout(ink_hrtime timeout_in)
+{
+}
+
+void
+ProxySession::cancel_inactivity_timeout()
+{
+}
+
+bool
+ProxySession::is_client_closed() const
+{
+  return get_netvc() == nullptr;
+}
+
+int
+ProxySession::populate_protocol(std::string_view *result, int size) const
+{
+  auto vc = this->get_netvc();
+  return vc ? vc->populate_protocol(result, size) : 0;
+}
+
+const char *
+ProxySession::protocol_contains(std::string_view tag_prefix) const
+{
+  auto vc = this->get_netvc();
+  return vc ? vc->protocol_contains(tag_prefix) : nullptr;
+}
+
+sockaddr const *
+ProxySession::get_client_addr()
+{
+  NetVConnection *netvc = get_netvc();
+  return netvc ? netvc->get_remote_addr() : nullptr;
+}
+sockaddr const *
+ProxySession::get_local_addr()
+{
+  NetVConnection *netvc = get_netvc();
+  return netvc ? netvc->get_local_addr() : nullptr;
+}
+
+void
+ProxySession::ssn_hook_append(TSHttpHookID id, INKContInternal *cont)
+{
+  this->api_hooks.append(id, cont);
+}
+
+void
+ProxySession::ssn_hook_prepend(TSHttpHookID id, INKContInternal *cont)
+{
+  this->api_hooks.prepend(id, cont);
+}
+
+APIHook *
+ProxySession::ssn_hook_get(TSHttpHookID id) const
+{
+  return this->api_hooks.get(id);
+}
+
+bool
+ProxySession::has_hooks() const
+{
+  return this->api_hooks.has_hooks() || http_global_hooks->has_hooks();
+}
