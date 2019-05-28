@@ -35,243 +35,88 @@ class ProxyTransaction : public VConnection
 public:
   ProxyTransaction();
 
-  // do_io methods implemented by subclasses
-
+  /// Virtual Methods
+  //
   virtual void new_transaction();
+  virtual void attach_server_session(Http1ServerSession *ssession, bool transaction_done = true);
+  virtual void transaction_done() = 0;
+  virtual void release(IOBufferReader *r); ///< Indicate we are done with this transaction
+  virtual void destroy();
 
-  virtual NetVConnection *
-  get_netvc() const
-  {
-    return (proxy_ssn) ? proxy_ssn->get_netvc() : nullptr;
-  }
+  /// Virtual Accessors
+  //
+  virtual NetVConnection *get_netvc() const;
+  virtual void set_parent(ProxySession *new_parent);
+
+  virtual void increment_client_transactions_stat() = 0;
+  virtual void decrement_client_transactions_stat() = 0;
 
   virtual void set_active_timeout(ink_hrtime timeout_in)     = 0;
   virtual void set_inactivity_timeout(ink_hrtime timeout_in) = 0;
   virtual void cancel_inactivity_timeout()                   = 0;
 
-  virtual void attach_server_session(Http1ServerSession *ssession, bool transaction_done = true);
+  virtual bool is_first_transaction() const;
+  virtual bool is_chunked_encoding_supported() const;
+  virtual void set_session_active();
+  virtual void clear_session_active();
 
-  // See if we need to schedule on the primary thread for the transaction or change the thread that is associated with the VC.
-  // If we reschedule, the scheduled action is returned.  Otherwise, NULL is returned
+  virtual in_port_t get_outbound_port() const;
+  virtual IpAddr get_outbound_ip4() const;
+  virtual IpAddr get_outbound_ip6() const;
+  virtual void set_outbound_port(in_port_t port);
+  virtual void set_outbound_ip(const IpAddr &new_addr);
+  virtual bool is_outbound_transparent() const;
+  virtual void set_outbound_transparent(bool flag);
+  virtual void set_h2c_upgrade_flag();
+  virtual bool allow_half_open() const = 0;
+  virtual const char *get_protocol_string();
+  virtual int populate_protocol(std::string_view *result, int size) const;
+  virtual const char *protocol_contains(std::string_view tag_prefix) const;
+  virtual int get_transaction_id() const = 0;
+
+  /// Non-Virtual Methods
+  //
   Action *adjust_thread(Continuation *cont, int event, void *data);
 
-  virtual bool
-  is_first_transaction() const
-  {
-    return proxy_ssn->get_transact_count() == 1;
-  }
-
-  // Ask your session if this is allowed
-  bool
-  is_transparent_passthrough_allowed()
-  {
-    return proxy_ssn ? proxy_ssn->is_transparent_passthrough_allowed() : false;
-  }
-
-  virtual bool
-  is_chunked_encoding_supported() const
-  {
-    return proxy_ssn ? proxy_ssn->is_chunked_encoding_supported() : false;
-  }
-
-  void
-  set_half_close_flag(bool flag)
-  {
-    if (proxy_ssn) {
-      proxy_ssn->set_half_close_flag(flag);
-    }
-  }
-  virtual bool
-  get_half_close_flag() const
-  {
-    return proxy_ssn ? proxy_ssn->get_half_close_flag() : false;
-  }
-
-  // What are the debug and hooks_enabled used for?  How are they set?
-  // Just calling through to proxy session for now
-  bool
-  debug() const
-  {
-    return proxy_ssn ? proxy_ssn->debug() : false;
-  }
-
-  APIHook *
-  ssn_hook_get(TSHttpHookID id) const
-  {
-    return proxy_ssn ? proxy_ssn->ssn_hook_get(id) : nullptr;
-  }
-
-  bool
-  has_hooks() const
-  {
-    return proxy_ssn->has_hooks();
-  }
-
-  virtual void
-  set_session_active()
-  {
-    if (proxy_ssn) {
-      proxy_ssn->set_session_active();
-    }
-  }
-
-  virtual void
-  clear_session_active()
-  {
-    if (proxy_ssn) {
-      proxy_ssn->clear_session_active();
-    }
-  }
-
-  /// DNS resolution preferences.
-  HostResStyle
-  get_host_res_style() const
-  {
-    return host_res_style;
-  }
-  void
-  set_host_res_style(HostResStyle style)
-  {
-    host_res_style = style;
-  }
-
-  const IpAllow::ACL &
-  get_acl() const
-  {
-    return proxy_ssn ? proxy_ssn->acl : IpAllow::DENY_ALL_ACL;
-  }
-
-  // Indicate we are done with this transaction
-  virtual void release(IOBufferReader *r);
-
-  // outbound values Set via the server port definition.  Really only used for Http1 at the moment
-  virtual in_port_t
-  get_outbound_port() const
-  {
-    return outbound_port;
-  }
-  virtual IpAddr
-  get_outbound_ip4() const
-  {
-    return outbound_ip4;
-  }
-  virtual IpAddr
-  get_outbound_ip6() const
-  {
-    return outbound_ip6;
-  }
-  virtual void
-  set_outbound_port(in_port_t port)
-  {
-    outbound_port = port;
-  }
-  virtual void
-  set_outbound_ip(const IpAddr &new_addr)
-  {
-    if (new_addr.isIp4()) {
-      outbound_ip4 = new_addr;
-    } else if (new_addr.isIp6()) {
-      outbound_ip6 = new_addr;
-    } else {
-      outbound_ip4.invalidate();
-      outbound_ip6.invalidate();
-    }
-  }
-  virtual bool
-  is_outbound_transparent() const
-  {
-    return false;
-  }
-  virtual void
-  set_outbound_transparent(bool flag)
-  {
-  }
-
-  virtual void destroy();
-
-  virtual void transaction_done() = 0;
-
-  ProxySession *
-  get_parent()
-  {
-    return proxy_ssn;
-  }
-
-  virtual void
-  set_parent(ProxySession *new_parent)
-  {
-    proxy_ssn      = new_parent;
-    host_res_style = proxy_ssn->host_res_style;
-  }
-  virtual void
-  set_h2c_upgrade_flag()
-  {
-  }
-
-  Http1ServerSession *
-  get_server_session() const
-  {
-    return proxy_ssn ? proxy_ssn->get_server_session() : nullptr;
-  }
-
-  HttpSM *
-  get_sm() const
-  {
-    return current_reader;
-  }
-
-  virtual bool allow_half_open() const = 0;
-
-  virtual const char *
-  get_protocol_string()
-  {
-    return proxy_ssn ? proxy_ssn->get_protocol_string() : nullptr;
-  }
-
-  void
-  set_restart_immediate(bool val)
-  {
-    restart_immediate = true;
-  }
-  bool
-  get_restart_immediate() const
-  {
-    return restart_immediate;
-  }
-
-  virtual int
-  populate_protocol(std::string_view *result, int size) const
-  {
-    return proxy_ssn ? proxy_ssn->populate_protocol(result, size) : 0;
-  }
-
-  virtual const char *
-  protocol_contains(std::string_view tag_prefix) const
-  {
-    return proxy_ssn ? proxy_ssn->protocol_contains(tag_prefix) : nullptr;
-  }
-
-  // This function must return a non-negative number that is different for two in-progress transactions with the same proxy_ssn
-  // session.
+  /// Non-Virtual Accessors
   //
-  virtual int get_transaction_id() const = 0;
+  HttpSM *get_sm() const;
+  ProxySession *get_parent() const;
+  Http1ServerSession *get_server_session() const;
+
+  bool is_transparent_passthrough_allowed();
+  void set_half_close_flag(bool flag);
+  bool get_half_close_flag() const;
+
+  HostResStyle get_host_res_style() const;
+  void set_host_res_style(HostResStyle style);
+
+  bool debug() const;
+
+  APIHook *ssn_hook_get(TSHttpHookID id) const;
+  bool has_hooks() const;
+
+  const IpAllow::ACL &get_acl() const;
+
+  void set_restart_immediate(bool val);
+  bool get_restart_immediate() const;
+
   void set_rx_error_code(ProxyError e);
   void set_tx_error_code(ProxyError e);
 
-  virtual void increment_client_transactions_stat() = 0;
-  virtual void decrement_client_transactions_stat() = 0;
-
+  /// Variables
+  //
 protected:
-  ProxySession *proxy_ssn = nullptr;
-  HttpSM *current_reader;
-  IOBufferReader *sm_reader;
+  ProxySession *proxy_ssn   = nullptr;
+  HttpSM *current_reader    = nullptr;
+  IOBufferReader *sm_reader = nullptr;
 
   /// DNS resolution preferences.
   HostResStyle host_res_style;
   /// Local outbound address control.
-  in_port_t outbound_port{0};
   IpAddr outbound_ip4;
   IpAddr outbound_ip6;
+  in_port_t outbound_port{0};
 
   bool restart_immediate;
 
