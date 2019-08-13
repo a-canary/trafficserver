@@ -1,9 +1,30 @@
 #!/usr/bin/env bash
+#
+#  Simple wrapper to run clang-format on a bunch of files
+#
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+# Copyright (C) 2019 Oath
+
 
 set -e
 set -o pipefail
 
-readonly PrivateRegistryHost="docker-registry.ops.yahoo.com:4443"
+
 readonly edgePrefix='edge:'
 readonly ApacheRegistryHost='ci.trafficserver.apache.org'
 Images=''
@@ -22,19 +43,23 @@ function runCleanupCommands() {
 	trap : EXIT # Clear pending commands.
 }
 
+SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
+local_file="$SCRIPTPATH/docker_setup_local.sh"
+if [[ -r "$local_file" ]]
+then
+    source $local_file --source-only
+else
+    echo "Setup a $local_file to add your own images and options"
+    #with
+    #function populateCustomImages() {}
+    #function overrideOptions() {}
+fi
 
-function populateEdgeImages() {
-	
-	for x in \
-			'ylinux7.1:latest' \
-			'ylinux7.5:latest' \
-			'user-ylinux7.5:latest'
-	do
-		# docker-registry.ops.yahoo.com:4443/edge/ylinux7.1:latest
-		Images="$Images edge:$x"
-	done
-}
-
+#varibles to override
+OSEnv=''
+YumPluginOvlCmd=''
+RegistryBaseUrl=''
+OSSpecific=''
 
 function populateApacheImages() {
 	for x in \
@@ -79,31 +104,6 @@ function findExistingContainer() {
 
 
 function createEntrypointFile() {
-	local OSEnv=''
-	if [[ 'edge' == "$ImagePlatform" ]]
-	then
-		OSEnv="\
-					export LANG='en_US.UTF-8'; \
-					. /opt/rh/devtoolset-7/enable; \
-					export path=/opt/oath/libcurl/7.61/bin:$PATH \
-					"
-	elif [[ 'centos' == "$ImageName" ]]
-	then
-		OSEnv="$OSEnv . /opt/rh/devtoolset-7/enable;"
-		if [[ 6 -eq "$ImageVersion" ]]
-		then
-			OSEnv="$OSEnv . /opt/rh/rh-python35/enable;"
-		fi
-		OSEnv="$OSEnv export LANG='en_US.UTF-8';"
-
-	elif [[ 'debian' == "$ImageName" ]]
-	then
-		read -r -d '' OSEnv <<-'EOSNIPPET' || true
-			export CC=/usr/bin/gcc-7
-			export CXX=/usr/bin/g++-7
-			unset LANG
-		EOSNIPPET
-	fi
 	cat > entrypoint.sh <<-EOF
 		#!/usr/bin/env bash
 
@@ -116,116 +116,94 @@ function createEntrypointFile() {
 	chmod -vv +x entrypoint.sh
 }
 
+function defaultOptions() {
 
-function createDockerfile() {
-	createEntrypointFile
-	YumPluginOvlCmd='RUN sudo yum install -y yum-plugin-ovl gcc'
-	YinstUpdate=''
+    # init OSEnv
+    if [[ 'centos' == "$ImageName" ]]
+    then
+        OSEnv="$OSEnv . /opt/rh/devtoolset-7/enable;"
+        OSEnv="$OSEnv export LANG='en_US.UTF-8';"
 
-	if echo "$ImageSelection"|grep 'rhel6'
-	then
-		# Either we installed it, or we had something at least as new.
-		read -r -d '' YinstUpdate <<-'EOSNIPPET' || true
-			# Enhancement to Yinst to handle overlayfs
-			# https://git.ouroath.com/Tools/yinst/pull/17
-			RUN yinst self-update 7.186.6468
-		EOSNIPPET
+    elif [[ 'debian' == "$ImageName" ]]
+    then
+        OSEnv= "$OSEnv \
+            export CC=/usr/bin/gcc-7 \
+            export CXX=/usr/bin/g++-7 \
+            unset LANG \
+            "
+    fi
 
-	elif echo "$ImageSelection"|grep -e 'rhel7' -e 'ylinux7'
+    # init YumPluginOvlCmd
+    YumPluginOvlCmd='RUN sudo yum install -y yum-plugin-ovl gcc'
+    if echo "$ImageSelection"|grep -e 'rhel7'
 	then
 		YumPluginOvlCmd="$YumPluginOvlCmd \
 			--enablerepo=latest-rhel-7-server-rpms yum-plugin-ovl \
 			|| true"
 	fi
 
-	local Install=''
-	if [[ 'edge' == "${ImagePlatform}" || \
-				'fedora' == "${ImageName}" || \
-				'centos' == "${ImageName}" ]]
-	then
-		Install='yum install -y'
-	elif [[ 'debian' == "${ImageName}" || \
-			'ubuntu' == "${ImageName}" ]]
+    # init RegistryBaseUrl
+    RegistryBaseUrl="$ApacheRegistryHost"
+
+    # init OSSpecific & append OSEnv
+	if [[ 'ubuntu' == "$ImageName" || \
+			'debian' == "$ImageName" ]]
 	then
 		Install='DEBIAN_FRONTEND=noninteractive apt-get install -y'
-		Update='DEBIAN_FRONTEND=noninteractive apt-get update'
-	else
-		exit 1
-	fi
-
-	local RegistryBaseUrl=''
-	local OSSpecific=''
-	if [[ 'edge' == "$ImagePlatform" ]]
+	    Update='DEBIAN_FRONTEND=noninteractive apt-get update'
+        read -r -d '' OSSpecific <<-EOSNIPPET || true
+			RUN $Update
+			RUN $Install sudo || true
+			# Development tools.
+			RUN $Install vim screen ctags cscope
+			# Dependencies for building ATS documentation
+			RUN $Install python-pip graphviz
+			RUN pip install --upgrade sphinx sphinx-rtd-theme sphinxcontrib-plantuml
+		EOSNIPPET
+	elif [[ 'centos' == "$ImageName" && 6 -ge "$ImageVersion" ]]
 	then
-		RegistryBaseUrl="$PrivateRegistryHost"
-		read -r -d '' OSSpecific <<-EOSNIPPET || true
-			# We use sudo here because the image is not built as root.
-
-			RUN sudo yum clean metadata || true
-
+		Install='yum install -y'
+        read -r -d '' OSSpecific <<-EOSNIPPET || true
+			RUN $Install sudo || true
 			# This is needed to fix the overlay fs issue.
 			# https://unix.stackexchange.com/questions/348941/rpmdb-checksum-is-invalid-trying-to-install-gcc-in-a-centos-7-2-docker-image#354658
 			$YumPluginOvlCmd
-			
+			# Development tools.
+			RUN $Install vim screen ctags cscope
+			# Dependencies for building ATS documentation
+			RUN $Install rh-python35-python-pip && \
+					. /opt/rh/rh-python35/enable && \
+					pip install --upgrade sphinx sphinx-rtd-theme sphinxcontrib-plantuml
+			RUN $Install graphviz
 		EOSNIPPET
 
-	elif [[ 'ats' == "$ImagePlatform" ]]
+        OSEnv="$OSEnv . /opt/rh/rh-python35/enable;"
+
+	elif [[ 'fedora' == "$ImageName" || 'centos' == "$ImageName" ]]
 	then
-		RegistryBaseUrl="$ApacheRegistryHost"
-		if [[ 'ubuntu' == "$ImageName" || \
-				'debian' == "$ImageName" ]]
-		then
-			read -r -d '' OSSpecific <<-EOSNIPPET || true
-				RUN $Update
-				RUN $Install sudo || true
+		Install='yum install -y'
+        read -r -d '' OSSpecific <<-EOSNIPPET || true
+			RUN $Install sudo || true
+			# This is needed to fix the overlay fs issue.
+			# https://unix.stackexchange.com/questions/348941/rpmdb-checksum-is-invalid-trying-to-install-gcc-in-a-centos-7-2-docker-image#354658
+			$YumPluginOvlCmd
+			# Development tools.
+			RUN $Install vim screen ctags cscope
+			# Dependencies for building ATS documentation
+			RUN $Install rh-python35-python-pip && \
+					. /opt/rh/rh-python35/enable && \
+                    pip install --upgrade sphinx sphinx-rtd-theme sphinxcontrib-plantuml
+			RUN $Install graphviz
+		EOSNIPPET
 
-				# Development tools.
-				RUN $Install vim screen ctags cscope
-
-				# Dependencies for building ATS documentation
-				RUN $Install python-pip graphviz
-				RUN pip install --upgrade sphinx sphinx-rtd-theme sphinxcontrib-plantuml
-			EOSNIPPET
-
-		elif [[ 'centos' == "$ImageName" && 6 -ge "$ImageVersion" ]]
-		then
-			read -r -d '' OSSpecific <<-EOSNIPPET || true
-				RUN $Install sudo || true
-
-				# This is needed to fix the overlay fs issue.
-				# https://unix.stackexchange.com/questions/348941/rpmdb-checksum-is-invalid-trying-to-install-gcc-in-a-centos-7-2-docker-image#354658
-				$YumPluginOvlCmd
-
-				# Development tools.
-				RUN $Install vim screen ctags cscope
-
-				# Dependencies for building ATS documentation
-				RUN $Install rh-python35-python-pip && \
-						. /opt/rh/rh-python35/enable && \
-						pip install --upgrade sphinx sphinx-rtd-theme sphinxcontrib-plantuml
-				RUN $Install graphviz
-			EOSNIPPET
-
-		elif [[ 'fedora' == "$ImageName" || 'centos' == "$ImageName" ]]
-		then
-			read -r -d '' OSSpecific <<-EOSNIPPET || true
-				RUN $Install sudo || true
-
-				# This is needed to fix the overlay fs issue.
-				# https://unix.stackexchange.com/questions/348941/rpmdb-checksum-is-invalid-trying-to-install-gcc-in-a-centos-7-2-docker-image#354658
-				$YumPluginOvlCmd
-
-				# Development tools.
-				RUN $Install vim screen ctags cscope
-
-				# Dependencies for building ATS documentation
-				RUN pip install --upgrade sphinx sphinx-rtd-theme sphinxcontrib-plantuml
-				RUN $Install graphviz
-			EOSNIPPET
-		fi
-	else
-		exit 1
+        OSEnv="$OSEnv . /opt/rh/rh-python35/enable;"
 	fi
+
+}
+
+
+function createDockerfile() {
+	createEntrypointFile
 
 	# The CONTAINER environment variable has a special format for edge.
 	readonly CONTAINER=$ImageSelection
@@ -258,6 +236,8 @@ function buildDockerImage() {
 	pushd "$TempDir" > /dev/null
 	addToCleanup 'popd > /dev/null'
 
+    defaultOptions
+    declare -F overrideOptions && overrideOptions
 	createDockerfile
 	docker build --squash -f Dockerfile -t "${LocalImageName}:${LocalImageTag}" . \
 		|| ( echo 'Could not build docker image' >&2 &&  exit 1)
@@ -296,7 +276,8 @@ function createImageAndRunContainer() {
 
 
 function main() {
-	populateEdgeImages
+
+    declare -F populateCustomImages && populateCustomImages
 	populateApacheImages
 	chooseImage
 
@@ -318,8 +299,8 @@ function main() {
 }
 
 
-if [[ "$(basename -- "$0")" == 'atsdevelop.sh' || \
-		"$(basename -- "$0")" == 'atsdevelop' ]]
+if [[ "$(basename -- "$0")" == 'docker_setup.sh' || \
+		"$(basename -- "$0")" == 'docker_setup' ]]
 then
 	if [[ $# -gt 0 ]]
 	then
@@ -328,7 +309,7 @@ then
 
 			Enter a shell in an ATS development environment.
 
-			Select the image you wish to use from among the Edge 
+			Select the image you wish to use from among the Edge
 			(edge) and public ATS CI images (ats). The selected image is
 			overlayed with certain packages beneficial to development (e.g., vim).
 			The result is used to start a Docker container.
