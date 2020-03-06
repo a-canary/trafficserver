@@ -775,7 +775,6 @@ Http2Stream::destroy()
 
     // Update session's stream counts, so it accurately goes into keep-alive state
     h2_proxy_ssn->connection_state.release_stream();
-
     // Do not access `_proxy_ssn` in below. It might be freed by `release_stream`.
     
   }
