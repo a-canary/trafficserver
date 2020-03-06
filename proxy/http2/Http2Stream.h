@@ -55,13 +55,12 @@ public:
   using super           = ProxyTransaction; ///< Parent type.
 
   Http2Stream(Http2StreamId sid = 0, ssize_t initial_rwnd = Http2::initial_window_size);
+  ~Http2Stream() override;
 
   void init(Http2StreamId sid, ssize_t initial_rwnd);
 
   int main_event_handler(int event, void *edata);
 
-  void destroy() override;
-  void release(IOBufferReader *r) override;
   void reenable(VIO *vio) override;
   void transaction_done() override;
 
@@ -104,8 +103,6 @@ public:
   bool allow_half_open() const override;
   bool is_first_transaction() const override;
   void increment_txn_stat() override;
-  void decrement_txn_stat() override;
-  int get_transaction_id() const override;
   int get_transaction_priority_weight() const override;
   int get_transaction_priority_dependence() const override;
 
@@ -163,10 +160,10 @@ private:
 
   NetTimeout _timeout{};
   HTTPParser http_parser;
-  EThread *_thread = nullptr;
-  Http2StreamId _id;
-  Http2StreamState _state = Http2StreamState::HTTP2_STREAM_STATE_IDLE;
-  int64_t _http_sm_id     = -1;
+  EThread *_thread         = nullptr;
+  Http2StreamId _stream_id = 0;
+  Http2StreamState _state  = Http2StreamState::HTTP2_STREAM_STATE_IDLE;
+  int64_t _http_sm_id      = -1;
 
   HTTPHdr _req_header;
   MIOBuffer _request_buffer = CLIENT_CONNECTION_FIRST_READ_BUFFER_SIZE_INDEX;
@@ -220,8 +217,6 @@ private:
   Event *_write_vio_event = nullptr;
 };
 
-extern ClassAllocator<Http2Stream> http2StreamAllocator;
-
 ////////////////////////////////////////////////////
 // INLINE
 
@@ -247,13 +242,7 @@ Http2Stream::update_sent_count(unsigned num_bytes)
 inline Http2StreamId
 Http2Stream::get_id() const
 {
-  return _id;
-}
-
-inline int
-Http2Stream::get_transaction_id() const
-{
-  return _id;
+  return _stream_id;
 }
 
 inline Http2StreamState
