@@ -22,7 +22,7 @@
  */
 
 #include "Http2Stream.h"
-
+#include "HttpDebugNames.h"
 #include "HTTP2.h"
 #include "Http2ClientSession.h"
 #include "../http/HttpSM.h"
@@ -69,7 +69,7 @@ int
 Http2Stream::main_event_handler(int event, void *edata)
 {
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
-  REMEMBER(event, this->reentrancy_count);
+  REMEMBER(HttpDebugNames::get_event_name(event), this->reentrancy_count);
 
   if (!this->_switch_thread_if_not_on_right_thread(event, edata)) {
     // Not on the right thread
@@ -344,7 +344,7 @@ Http2Stream::do_io_close(int /* flags */)
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
 
   if (!closed) {
-    REMEMBER(NO_EVENT, this->reentrancy_count);
+    REMEMBER("close", this->reentrancy_count);
     Http2StreamDebug("do_io_close");
 
     // When we get here, the SM has initiated the shutdown.  Either it received a WRITE_COMPLETE, or it is shutting down.  Any
@@ -372,7 +372,7 @@ Http2Stream::do_io_close(int /* flags */)
 void
 Http2Stream::transaction_done()
 {
-  REMEMBER(NO_EVENT, this->reentrancy_count);
+  REMEMBER("txn_done", this->reentrancy_count);
 
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
   if (cross_thread_event) {
@@ -399,7 +399,7 @@ void
 Http2Stream::terminate_if_possible()
 {
   if (terminate_stream && reentrancy_count == 0) {
-    REMEMBER(NO_EVENT, this->reentrancy_count);
+    REMEMBER("terminate", this->reentrancy_count);
     delete this;
   }
 }
@@ -410,7 +410,7 @@ Http2Stream::initiating_close()
 {
   if (!closed) {
     SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
-    REMEMBER(NO_EVENT, this->reentrancy_count);
+    REMEMBER("init close", this->reentrancy_count);
     Http2StreamDebug("initiating_close");
 
     // Set the state of the connection to closed
@@ -473,7 +473,7 @@ Http2Stream::send_tracked_event(Event *event, int send_event, VIO *vio)
   }
 
   if (event == nullptr) {
-    REMEMBER(send_event, this->reentrancy_count);
+    REMEMBER(HttpDebugNames::get_event_name(send_event), this->reentrancy_count);
     event = this_ethread()->schedule_imm(this, send_event, vio);
   }
 
@@ -749,7 +749,7 @@ Http2Stream::reenable(VIO *vio)
 
 Http2Stream::~Http2Stream()
 {
-  REMEMBER(NO_EVENT, this->reentrancy_count);
+  REMEMBER(nullptr, this->reentrancy_count);
   Http2StreamDebug("Destroy stream, sent %" PRIu64 " bytes", this->bytes_sent);
   SCOPED_MUTEX_LOCK(lock, this->mutex, this_ethread());
   // Clean up after yourself if this was an EOS
